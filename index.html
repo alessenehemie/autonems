@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AutoNems - Location &amp; Vente de Véhicules à Abidjan</title>
+    <meta name="description" content="AutoNems, Angré 8ème Tranche, Abidjan — location et vente de véhicules d'exception : SUV, berlines, pick-up. Réservation rapide sur WhatsApp.">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    
+    <div class="scroll-progress" id="scrollProgress"></div>
+
+  
+    <header class="navbar" id="navbar">
+        <div class="logo">AUTONEMS.</div>
+        <nav>
+            <a href="#accueil">Accueil</a>
+            <a href="#vehicules">Véhicules</a>
+            <a href="#contact" class="btn-outline">Contact</a>
+        </nav>
+    </header>
+
+    
+    <section id="accueil" class="hero" style="background: linear-gradient(rgba(3, 8, 17, 0.62), rgba(2, 6, 14, 0.9)), url('image/rangerover.jpg') center/cover no-repeat;">
+        <div class="hero-glow"></div>
+        <div class="hero-content reveal">
+            <span class="hero-kicker">Angré, 8ème Tranche · Abidjan</span>
+            <h1>L'Élégance sur la <span class="gradient-text">Route</span>.</h1>
+            <p>Louez ou achetez des véhicules d'exception chez AutoNems, à Abidjan.</p>
+            <a href="#vehicules" class="btn-solid">Voir nos véhicules</a>
+        </div>
+        <a href="#vehicules" class="scroll-hint" aria-label="Défiler vers la flotte">
+            <span></span>
+        </a>
+    </section>
+
+   
+    <section id="vehicules" class="section">
+
+        <h2 class="section-title reveal">Notre Flotte</h2>
+        <p class="section-sub reveal">Chaque véhicule est vérifiée avant mise en ligne. Photos réelles, année et kilométrage affichés. Cliquez sur une voiture pour voir tous les détails.</p>
+
+      
+        <div class="search-container reveal">
+            <input type="text" id="searchInput" placeholder="Rechercher dans notre flotte (ex : BMW, Tucson, Kia)...">
+        </div>
+
+        
+        <div class="chips-container reveal" id="brandChips"></div>
+
+      
+        <div class="grid" id="vehicleGrid"></div>
+        <p id="noResult" class="no-result" hidden>Aucun véhicule ne correspond à votre recherche. Écrivez-nous sur WhatsApp, nous vous aidons à trouver le bon modèle.</p>
+    </section>
+
+
+    <section class="section trust-section">
+        <div class="trust-grid reveal">
+            <div class="trust-item">
+                <h4>Papiers vérifiés</h4>
+                <p>Carte grise, visite technique et assurance contrôlées avant chaque mise en ligne.</p>
+            </div>
+            <div class="trust-item">
+                <h4>Essai avant décision</h4>
+                <p>Vous conduisez le véhicule à Abidjan sur une courte distance avant de vous engager pour achat.</p>
+            </div>
+            <div class="trust-item">
+                <h4>Paiement à votre rythme</h4>
+                <p>Wave, Orange Money, virement bancaire ou comptant en agence. Reçu à chaque versement.</p>
+            </div>
+        </div>
+    </section>
+
+   
+    <section id="contact" class="section dark-section">
+        <div class="contact-box reveal">
+            <h2>Contactez AutoNems</h2>
+            <p>Assistance rapide et réservation en quelques minutes.</p>
+            <div class="contact-details">
+                <p><strong>WhatsApp :</strong> +225 07 69 58 34 94</p>
+                <p><strong>Adresse :</strong> Angré, 8ème Tranche, Abidjan, Côte d'Ivoire</p>
+            </div>
+            <a href="https://wa.me/2250769583494?text=Bonjour%20AutoNems%2C%20j%27ai%20une%20question%20sur%20vos%20v%C3%A9hicules." target="_blank" class="btn-solid invert">Discuter sur WhatsApp</a>
+        </div>
+    </section>
+
+    <footer class="site-footer">
+        <p>© <span id="year"></span> AutoNems — Angré, 8ème Tranche, Abidjan</p>
+    </footer>
+
+   
+    <a href="https://wa.me/2250769583494" target="_blank" class="whatsapp-float" aria-label="Contacter sur WhatsApp">
+        <svg viewBox="0 0 32 32" width="28" height="28" fill="currentColor"><path d="M16 0C7.16 0 0 7.16 0 16c0 2.82.74 5.47 2.03 7.76L0 32l8.46-2.02A15.9 15.9 0 0 0 16 32c8.84 0 16-7.16 16-16S24.84 0 16 0zm0 29.09c-2.53 0-4.9-.69-6.93-1.9l-.5-.3-5.02 1.2 1.24-4.9-.33-.5A13.03 13.03 0 0 1 2.9 16C2.9 8.77 8.77 2.9 16 2.9S29.1 8.77 29.1 16 23.23 29.09 16 29.09zm7.17-9.8c-.39-.2-2.32-1.14-2.68-1.27-.36-.13-.62-.2-.89.2-.26.39-1.01 1.27-1.24 1.53-.23.26-.46.29-.85.1-.39-.2-1.63-.6-3.11-1.92-1.15-1.02-1.92-2.29-2.15-2.68-.23-.39-.02-.6.17-.79.18-.18.39-.46.58-.69.2-.23.26-.39.39-.65.13-.26.06-.49-.03-.69-.1-.2-.89-2.14-1.22-2.93-.32-.77-.65-.67-.89-.68l-.76-.01c-.26 0-.69.1-1.05.49-.36.39-1.37 1.34-1.37 3.27s1.4 3.79 1.6 4.05c.2.26 2.76 4.21 6.69 5.9.94.4 1.67.65 2.24.83.94.3 1.8.26 2.48.16.76-.11 2.32-.95 2.65-1.87.33-.92.33-1.7.23-1.87-.1-.16-.36-.26-.75-.46z"/></svg>
+    </a>
+
+
+    <div class="vehicle-modal" id="vehicleModal">
+        <div class="modal-overlay" id="modalOverlay"></div>
+        <div class="modal-panel">
+            <button class="modal-close" id="modalClose" aria-label="Fermer">✕</button>
+            <div class="modal-media">
+                <img id="modalImg" src="" alt="">
+                <span class="badge modal-badge" id="modalBadge"></span>
+            </div>
+            <div class="modal-body">
+                <h3 id="modalTitle"></h3>
+                <p class="modal-desc" id="modalDesc"></p>
+                <p class="modal-timer" id="modalTimer" hidden></p>
+                <div class="modal-specs" id="modalSpecs"></div>
+                <h4 class="modal-subtitle">Équipements</h4>
+                <ul class="modal-equip" id="modalEquip"></ul>
+                <div class="modal-price-block">
+                    <div class="price-line"><span class="price-label">Location</span><span class="price" id="modalPriceLoc"></span></div>
+                    <div class="price-line"><span class="price-label">Vente</span><span class="price" id="modalPriceVente"></span></div>
+                </div>
+                <div class="card-actions">
+                    <button type="button" class="btn-full" id="modalReserveBtn">Réserver ce véhicule</button>
+                    <a href="#" class="btn-full btn-acheter-card" id="modalAchatBtn">Acheter ce véhicule</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    
+    <div class="vehicle-modal reservation-modal" id="reservationModal">
+        <div class="modal-overlay" id="resModalOverlay"></div>
+        <div class="modal-panel">
+            <button class="modal-close" id="resModalClose" aria-label="Fermer">✕</button>
+
+            
+            <div class="modal-body" id="resStepForm">
+                <div class="res-car-preview">
+                    <img id="resCarImg" src="" alt="">
+                    <div>
+                        <h3 id="resCarName"></h3>
+                        <span class="price" id="resCarPrice"></span>
+                    </div>
+                </div>
+                <h4 class="modal-subtitle">Réserver ce véhicule</h4>
+                <form id="reservationForm" novalidate>
+                    <div class="form-group">
+                        <label for="resName">Nom et Prénoms :</label>
+                        <input type="text" id="resName" placeholder="Ex: Kouassi Jean" autocomplete="off" required>
+                        <p class="field-hint">Lettres uniquement (nom et prénom), sans chiffres ni symboles.</p>
+                        <p class="field-error" id="resNameError" hidden></p>
+                    </div>
+                    <div class="form-group">
+                        <label for="resPhone">Votre Numéro de Téléphone :</label>
+                        <input type="tel" id="resPhone" placeholder="Ex: 07 69 58 34 94" autocomplete="off" required>
+                        <p class="field-hint">Numéro ivoirien à 10 chiffres (ex : 07 69 58 34 94).</p>
+                        <p class="field-error" id="resPhoneError" hidden></p>
+                    </div>
+                    <div class="form-group">
+                        <label for="resDuration">Durée de réservation souhaitée :</label>
+                        <select id="resDuration" required>
+                            <option value="">-- Choisissez une durée --</option>
+                            <option value="2">2 heures</option>
+                            <option value="6">6 heures</option>
+                            <option value="24">24 heures (1 jour)</option>
+                            <option value="72">3 jours</option>
+                            <option value="168">7 jours</option>
+                            <option value="336">14 jours</option>
+                        </select>
+                        <p class="field-hint">Le véhicule s'affichera "Réservé" sur le site pendant cette durée, puis redeviendra automatiquement disponible.</p>
+                        <p class="field-error" id="resDurationError" hidden></p>
+                    </div>
+                    <button type="submit" class="btn-submit" id="resSubmitBtn">Confirmer la réservation ➔</button>
+                    <p class="disclaimer">Un conseiller confirme votre réservation avec vous sur WhatsApp.</p>
+                </form>
+            </div>
+
+            <!-- Étape 2 : confirmation + proposition d'achat -->
+            <div class="modal-body res-confirm" id="resStepConfirm" hidden>
+                <div class="res-confirm-icon">✅</div>
+                <p id="resConfirmText"></p>
+                <h4 class="modal-subtitle">Souhaitez-vous acheter ce véhicule maintenant ?</h4>
+                <div class="card-actions">
+                    <a href="#" class="btn-full btn-acheter-card" id="resBuyYesBtn">Oui, acheter →</a>
+                    <button type="button" class="btn-full btn-secondary" id="resBuyNoBtn">Non merci</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="reservations.js"></script>
+    <script src="validation.js"></script>
+    <script src="script.js"></script>
+    <script>document.getElementById('year').textContent = new Date().getFullYear();</script>
+</body>
+</html>

@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AutoNems - Tableau de Bord Administrateur</title>
+    <link rel="stylesheet" href="dashboard.css">
+</head>
+<body class="admin-dashboard">
+
+    <aside class="admin-sidebar">
+        <div>
+            <h2>🚗 AutoNems Admin</h2>
+            <nav>
+                <a href="#" class="tab-link active" data-target="section-overview">Vue d'ensemble</a>
+                <a href="#" class="tab-link" data-target="section-stock">Gestion du Stock</a>
+                <a href="#" class="tab-link" data-target="section-reservations">Réservations & Ventes</a>
+                <a href="#" class="tab-link" data-target="section-settings">Paramètres du Compte</a>
+            </nav>
+        </div>
+        <button id="logoutBtn" class="btn-logout">Déconnexion</button>
+    </aside>
+
+    <main class="admin-content">
+
+        <!-- ONGLET 1 : VUE D'ENSEMBLE -->
+        <section id="section-overview" class="admin-section active">
+            <h1>Vue d'ensemble</h1>
+            <p>Statistiques en temps réel de ton activité AutoNems.</p>
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-value" id="statTotal">–</div>
+                    <div class="stat-label">Véhicules en ligne</div>
+                </div>
+                <div class="stat-card green">
+                    <div class="stat-value" id="statDispo">–</div>
+                    <div class="stat-label">Véhicules disponibles</div>
+                </div>
+                <div class="stat-card orange">
+                    <div class="stat-value" id="statEnCours">–</div>
+                    <div class="stat-label">Locations en cours</div>
+                </div>
+                <div class="stat-card purple">
+                    <div class="stat-value" id="statReservations">–</div>
+                    <div class="stat-label">Réservations reçues (total)</div>
+                </div>
+                <div class="stat-card cyan" style="border-color: #06b6d4;">
+                    <div class="stat-value" id="statVentes" style="color: #06b6d4;">–</div>
+                    <div class="stat-label">Voitures vendues (total)</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ONGLET 2 : STOCK -->
+        <section id="section-stock" class="admin-section">
+            <h1>Gestion du Catalogue de Véhicules</h1>
+            <p>Ajoutez, modifiez ou supprimez les véhicules disponibles à la location ou à l'achat.</p>
+
+            <div class="card-box">
+                <button class="btn-primary" id="openAddCarModalBtn">+ Ajouter une nouvelle voiture</button>
+
+                <div class="data-table-container">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Photo</th>
+                                <th>Modèle</th>
+                                <th>Marque</th>
+                                <th>Location / jour</th>
+                                <th>Vente</th>
+                                <th>Statut</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="stockTableBody">
+                            <tr class="empty-row"><td colspan="7">Chargement des véhicules...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- ONGLET 3 : RÉSERVATIONS & VENTES -->
+        <section id="section-reservations" class="admin-section">
+            <!-- En-tête modifié avec le bouton d'ajout de réservation -->
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                <div>
+                    <h1>Suivi des Demandes Clients</h1>
+                    <p style="margin-bottom: 0;">Réservations effectuées par les clients depuis le site public ou ajoutées manuellement.</p>
+                </div>
+                <button class="btn-primary" id="openAddBookingModalBtn">+ Ajouter une réservation</button>
+            </div>
+
+            <div class="card-box">
+                <div class="data-table-container">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Client</th>
+                                <th>Téléphone</th>
+                                <th>Véhicule</th>
+                                <th>Durée</th>
+                                <th>Statut</th>
+                                <th>Reçue le</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="reservationsTableBody">
+                            <tr class="empty-row"><td colspan="7">Chargement des réservations...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Section et tableau des Voitures Vendues -->
+            <div style="margin-top: 40px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                <div>
+                    <h2 style="color: #38bdf8; font-size: 1.5rem; margin-bottom: 5px;">Voitures Vendues</h2>
+                    <p style="margin-bottom: 0;">Coordonnées des véhicules vendus et de leurs acheteurs.</p>
+                </div>
+                <button class="btn-primary" id="openAddSaleModalBtn">+ Enregistrer une vente</button>
+            </div>
+
+            <div class="card-box">
+                <div class="data-table-container">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Acheteur</th>
+                                <th>Téléphone</th>
+                                <th>Véhicule</th>
+                                <th>Détails Véhicule</th>
+                                <th>Prix de vente</th>
+                                <th>Date de vente</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="salesTableBody">
+                            <tr class="empty-row"><td colspan="7">Chargement des ventes...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- ONGLET 4 : PARAMÈTRES -->
+        <section id="section-settings" class="admin-section">
+            <h1>Sécurité et Paramètres</h1>
+            <p>Modifie tes informations de connexion administrateur.</p>
+
+            <div class="card-box">
+                <form id="settingsForm">
+                    <div class="settings-form-group">
+                        <label for="settingsEmail">Adresse E-mail</label>
+                        <input type="email" id="settingsEmail" name="email" required placeholder="admin@autonems.com">
+                    </div>
+
+                    <div class="settings-form-group">
+                        <label for="settingsOldPassword">Mot de passe actuel (requis pour modification)</label>
+                        <input type="password" id="settingsOldPassword" name="old_password" placeholder="••••••••">
+                    </div>
+
+                    <div class="settings-form-group">
+                        <label for="settingsNewPassword">Nouveau mot de passe (laisser vide pour ne pas changer)</label>
+                        <input type="password" id="settingsNewPassword" name="new_password" placeholder="••••••••">
+                    </div>
+
+                    <div id="settingsFormError" style="color: #f87171; margin-bottom: 15px; display: none;"></div>
+                    <div id="settingsFormSuccess" style="color: #34d399; margin-bottom: 15px; display: none;"></div>
+
+                    <button type="submit" class="btn-primary" id="settingsSubmitBtn">Mettre à jour le compte</button>
+                </form>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- MODAL AJOUT / MODIFICATION VÉHICULE -->
+    <div class="veh-modal-overlay" id="vehicleModalOverlay">
+        <div class="veh-modal">
+            <button type="button" class="veh-modal-close" id="vehicleModalClose">&times;</button>
+            <h2 id="vehicleModalTitle">Ajouter un véhicule</h2>
+
+            <form id="vehicleForm" enctype="multipart/form-data">
+                <input type="hidden" id="vehId" name="id">
+
+                <div class="form-grid">
+                    <div class="full">
+                        <label for="vehNom">Nom du véhicule *</label>
+                        <input type="text" id="vehNom" name="nom" required placeholder="Ex : Toyota Corolla">
+                    </div>
+
+                    <div>
+                        <label for="vehMarque">Marque</label>
+                        <input type="text" id="vehMarque" name="marque" placeholder="Ex : Toyota">
+                    </div>
+                    <div>
+                        <label for="vehAn">Année</label>
+                        <input type="number" id="vehAn" name="an" min="1990" max="2100" placeholder="2024">
+                    </div>
+
+                    <div>
+                        <label for="vehKm">Kilométrage</label>
+                        <input type="text" id="vehKm" name="km" placeholder="Ex : 15 000">
+                    </div>
+                    <div>
+                        <label for="vehCouleur">Couleur</label>
+                        <input type="text" id="vehCouleur" name="couleur" placeholder="Ex : Gris métallisé">
+                    </div>
+
+                    <div>
+                        <label for="vehBoite">Boîte</label>
+                        <select id="vehBoite" name="boite">
+                            <option value="Automatique">Automatique</option>
+                            <option value="Manuelle">Manuelle</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="vehCarburant">Carburant</label>
+                        <select id="vehCarburant" name="carburant">
+                            <option value="Essence">Essence</option>
+                            <option value="Diesel">Diesel</option>
+                            <option value="Électrique">Électrique</option>
+                            <option value="Hybride">Hybride</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label for="vehPlaces">Nombre de places</label>
+                        <input type="number" id="vehPlaces" name="places" min="1" max="9" value="5">
+                    </div>
+                    <div>
+                        <label class="checkbox-row" style="margin-top: 28px;">
+                            <input type="checkbox" id="vehDispo" name="dispo" checked>
+                            Disponible à la location/vente
+                        </label>
+                    </div>
+
+                    <div>
+                        <label for="vehLoc">Prix location / jour (FCFA)</label>
+                        <input type="number" id="vehLoc" name="loc" min="0" placeholder="Ex : 45000">
+                    </div>
+                    <div>
+                        <label for="vehVente">Prix de vente (FCFA)</label>
+                        <input type="number" id="vehVente" name="vente" min="0" placeholder="Ex : 16500000">
+                    </div>
+
+                    <div class="full">
+                        <label for="vehDescription">Description</label>
+                        <textarea id="vehDescription" name="description" placeholder="Décris ce véhicule en quelques phrases..."></textarea>
+                    </div>
+
+                    <div class="full">
+                        <label for="vehEquipements">Équipements (un par ligne)</label>
+                        <textarea id="vehEquipements" name="equipements_raw" placeholder="Climatisation automatique&#10;Caméra de recul&#10;Bluetooth"></textarea>
+                    </div>
+
+                    <div class="full">
+                        <label for="vehImageFile">Photo du véhicule (fichier)</label>
+                        <input type="file" id="vehImageFile" name="image" accept="image/png, image/jpeg, image/webp">
+                    </div>
+                    <div class="full">
+                        <label for="vehImageUrl">— ou lien d'image (URL, optionnel si fichier fourni)</label>
+                        <input type="text" id="vehImageUrl" name="img_url" placeholder="https://...">
+                        <img id="vehImagePreview" class="img-preview" alt="Aperçu">
+                    </div>
+                </div>
+
+                <div class="form-error" id="vehicleFormError" style="color:#f87171; margin-bottom:10px; display:none;"></div>
+
+                <div class="modal-actions">
+                    <button type="button" class="btn-secondary" id="vehicleFormCancel">Annuler</button>
+                    <button type="submit" class="btn-primary" id="vehicleFormSubmit">Enregistrer</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL ENREGISTRER UNE VENTE -->
+    <div class="veh-modal-overlay" id="saleModalOverlay">
+        <div class="veh-modal">
+            <button type="button" class="veh-modal-close" id="saleModalClose">&times;</button>
+            <h2>Enregistrer une vente de voiture</h2>
+
+            <form id="saleForm">
+                <div class="form-grid">
+                    <div class="full">
+                        <label for="saleCarName">Nom / Modèle du véhicule *</label>
+                        <input type="text" id="saleCarName" name="car_name" required placeholder="Ex : Toyota RAV4">
+                    </div>
+                    <div class="full">
+                        <label for="saleCarDetails">Détails du véhicule (Immat, Couleur, etc.)</label>
+                        <input type="text" id="saleCarDetails" name="car_details" placeholder="Ex : Noir, 2022">
+                    </div>
+                    <div>
+                        <label for="saleBuyerNom">Nom et Prénom de l'acheteur *</label>
+                        <input type="text" id="saleBuyerNom" name="buyer_nom" required placeholder="Ex : Kouassi Jean">
+                    </div>
+                    <div>
+                        <label for="saleBuyerTel">Téléphone de l'acheteur *</label>
+                        <input type="text" id="saleBuyerTel" name="buyer_telephone" required placeholder="Ex : +225 07000000">
+                    </div>
+                    <div class="full">
+                        <label for="salePrice">Prix de vente final (FCFA) *</label>
+                        <input type="number" id="salePrice" name="sale_price" required min="0" placeholder="Ex : 15000000">
+                    </div>
+                </div>
+
+                <div class="modal-actions">
+                    <button type="button" class="btn-secondary" id="saleFormCancel">Annuler</button>
+                    <button type="submit" class="btn-primary">Enregistrer la vente</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- NOUVELLE MODAL : AJOUTER UNE RÉSERVATION MANUELLEMENT -->
+    <div class="veh-modal-overlay" id="bookingModalOverlay">
+        <div class="veh-modal">
+            <button type="button" class="veh-modal-close" id="bookingModalClose">&times;</button>
+            <h2>Ajouter une réservation</h2>
+
+            <form id="bookingForm">
+                <div class="form-grid">
+                    <div>
+                        <label for="bookingClientNom">Nom du client *</label>
+                        <input type="text" id="bookingClientNom" name="client_nom" required placeholder="Ex : Jean Kouassi">
+                    </div>
+                    <div>
+                        <label for="bookingClientTel">Téléphone *</label>
+                        <input type="text" id="bookingClientTel" name="client_telephone" required placeholder="Ex : +225 07000000">
+                    </div>
+                    <div class="full">
+                        <label for="bookingCarName">Véhicule concerné *</label>
+                        <input type="text" id="bookingCarName" name="car_name" required placeholder="Ex : Toyota Corolla">
+                    </div>
+                    <div class="full">
+                        <label for="bookingDuree">Durée de location *</label>
+                        <input type="text" id="bookingDuree" name="duree_label" required placeholder="Ex : 3 jours">
+                    </div>
+                </div>
+
+                <div class="modal-actions">
+                    <button type="button" class="btn-secondary" id="bookingFormCancel">Annuler</button>
+                    <button type="submit" class="btn-primary">Enregistrer la réservation</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="dashboard.js"></script>
+</body>
+</html>

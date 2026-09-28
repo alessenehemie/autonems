@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>AutoNems - Admin</title>
+    <!-- Le lien CSS DOIT être ici dans le head -->
+    <link rel="stylesheet" href="admin.css">
+</head>
+<body>
+
+    <!-- Écran de Connexion -->
+    <div id="loginScreen">
+        <form class="login-card" id="loginForm">
+            <h2>AutoNems Admin</h2>
+            <div id="loginError" class="error-msg" hidden>Email ou mot de passe incorrect.</div>
+            
+            <div class="form-group">
+                <label for="adminEmail">Adresse Email</label>
+                <input type="email" id="adminEmail" class="form-control" required placeholder="admin@autonems.com">
+            </div>
+
+            <div class="form-group">
+                <label for="adminPassword">Mot de passe</label>
+                <input type="password" id="adminPassword" class="form-control" required placeholder="Votre mot de passe">
+            </div>
+
+            <button type="submit" class="btn-primary">Se connecter</button>
+        </form>
+    </div>
+        <script src="admin.js"></script>
+</body>
+</html>
