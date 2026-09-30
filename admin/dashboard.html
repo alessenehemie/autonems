@@ -82,7 +82,6 @@
 
         <!-- ONGLET 3 : RÉSERVATIONS & VENTES -->
         <section id="section-reservations" class="admin-section">
-            <!-- En-tête modifié avec le bouton d'ajout de réservation -->
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
                 <div>
                     <h1>Suivi des Demandes Clients</h1>
@@ -100,13 +99,14 @@
                                 <th>Téléphone</th>
                                 <th>Véhicule</th>
                                 <th>Durée</th>
+                                <th>Pièce d'identité</th>
                                 <th>Statut</th>
                                 <th>Reçue le</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody id="reservationsTableBody">
-                            <tr class="empty-row"><td colspan="7">Chargement des réservations...</td></tr>
+                            <tr class="empty-row"><td colspan="8">Chargement des réservations...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -314,7 +314,7 @@
         </div>
     </div>
 
-    <!-- NOUVELLE MODAL : AJOUTER UNE RÉSERVATION MANUELLEMENT -->
+    <!-- MODAL : AJOUTER UNE RÉSERVATION MANUELLEMENT -->
     <div class="veh-modal-overlay" id="bookingModalOverlay">
         <div class="veh-modal">
             <button type="button" class="veh-modal-close" id="bookingModalClose">&times;</button>
@@ -331,8 +331,10 @@
                         <input type="text" id="bookingClientTel" name="client_telephone" required placeholder="Ex : +225 07000000">
                     </div>
                     <div class="full">
-                        <label for="bookingCarName">Véhicule concerné *</label>
-                        <input type="text" id="bookingCarName" name="car_name" required placeholder="Ex : Toyota Corolla">
+                        <label for="bookingCarId">Véhicule concerné *</label>
+                        <select id="bookingCarId" name="car_id" required>
+                            <option value="">-- Choisir un véhicule --</option>
+                        </select>
                     </div>
                     <div class="full">
                         <label for="bookingDuree">Durée de location *</label>

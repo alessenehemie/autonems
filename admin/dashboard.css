@@ -160,7 +160,7 @@ body.admin-dashboard {
     font-weight: 500;
 }
 
-/* Cartes et conteneurs (Stock, Réservations, Paramètres) */
+/* Cartes et conteneurs */
 .card-box {
     background: rgba(15, 23, 42, 0.88);
     backdrop-filter: blur(12px);
@@ -173,12 +173,11 @@ body.admin-dashboard {
     color: #f8fafc;
 }
 
-/* Espacement du bouton "Ajouter une nouvelle voiture" par rapport au tableau */
 #openAddCarModalBtn {
     margin-bottom: 25px;
 }
 
-/* Boutons principaux et secondaires */
+/* Boutons */
 .btn-primary {
     background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
     color: #fff;
@@ -213,14 +212,13 @@ body.admin-dashboard {
     border-color: #38bdf8;
 }
 
-/* Conteneur de tableaux avec hauteur confortable pour éviter d'être trop court */
+/* Tableaux */
 .card-box .data-table-container {
     max-height: 60vh;
     overflow-y: auto;
     border-radius: 8px;
 }
 
-/* Tableaux de données parfaitement lisibles et espacés */
 table.data-table {
     width: 100%;
     border-collapse: collapse;
@@ -237,7 +235,7 @@ table.data-table tbody tr.empty-row td {
 
 table.data-table th, 
 table.data-table td {
-    padding: 18px 15px; /* Espacement aéré pour éviter que les infos soient trop collées */
+    padding: 18px 15px;
     text-align: left;
     border-bottom: 1px solid rgba(255, 255, 255, 0.15);
     vertical-align: middle;
@@ -265,7 +263,6 @@ table.data-table td {
     font-size: 0.95rem;
 }
 
-/* Style des images miniatures dans les tableaux */
 table.data-table img.table-thumb {
     width: 80px !important;
     height: 55px !important;
@@ -275,7 +272,7 @@ table.data-table img.table-thumb {
     display: block;
 }
 
-/* Badges de statut */
+/* Badges */
 .badge {
     background: rgba(16, 185, 129, 0.2);
     color: #34d399;
@@ -292,9 +289,7 @@ table.data-table img.table-thumb {
     border: 1px solid rgba(248, 113, 113, 0.4);
 }
 
-/* ============================================================ */
-/* MODALES D'AJOUT / MODIFICATION                               */
-/* ============================================================ */
+/* Modales */
 .veh-modal-overlay,
 .modal-overlay {
     display: none;
@@ -333,7 +328,6 @@ table.data-table img.table-thumb {
     position: relative;
 }
 
-/* Croix de fermeture stylisée */
 .veh-modal-close {
     position: absolute;
     top: 20px;
@@ -393,7 +387,6 @@ table.data-table img.table-thumb {
     outline: none;
 }
 
-/* Actions dans la modale (Boutons Annuler & Enregistrer bien espacés et stylisés) */
 .modal-actions {
     display: flex;
     justify-content: flex-end;
@@ -410,9 +403,7 @@ img.img-preview {
     border: 1px solid rgba(56, 189, 248, 0.3);
 }
 
-/* ============================================================ */
-/* SECTION PARAMÈTRES (Mise à jour compte & e-mail)             */
-/* ============================================================ */
+/* Paramètres */
 #section-settings .card-box {
     max-width: 600px;
 }
@@ -444,17 +435,65 @@ img.img-preview {
     outline: none;
 }
 
-/* ============================================================ */
-/* CORRECTIF RESPONSIVE MOBILE POUR LES EN-TÊTES DE BOUTONS     */
-/* ============================================================ */
+/* Responsive */
 @media (max-width: 768px) {
+    body.admin-dashboard {
+        flex-direction: column;
+    }
+
+    .admin-sidebar {
+        width: 100%;
+        min-height: auto;
+        padding: 15px;
+        flex-direction: row;
+        align-items: center;
+        flex-wrap: wrap;
+    }
+
+    .admin-sidebar h2 {
+        font-size: 1.1rem;
+        margin-bottom: 0;
+    }
+
+    .admin-sidebar nav {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 5px;
+        width: 100%;
+        margin-top: 10px;
+    }
+
+    .admin-sidebar nav a {
+        padding: 8px 10px;
+        font-size: 0.85rem;
+        margin-bottom: 0;
+    }
+
+    .admin-sidebar .btn-logout {
+        width: auto;
+        padding: 8px 12px;
+        font-size: 0.85rem;
+    }
+
+    .admin-content {
+        padding: 15px;
+        height: auto;
+        overflow-y: visible;
+    }
+
+    .card-box .data-table-container {
+        width: 100%;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    table.data-table {
+        min-width: 650px;
+    }
+
     #section-reservations > div:first-of-type {
         flex-direction: column;
         align-items: flex-start !important;
         gap: 15px;
-    }
-    
-    .admin-content {
-        padding: 15px;
     }
 }

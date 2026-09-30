@@ -299,16 +299,25 @@ function applyTiltEffect() {
 
 /* ============================================================
    MODAL DE RÉSERVATION
-   Étape 1 : nom, téléphone, durée → démarre le chrono.
+   Étape 1 : nom, téléphone, durée, pièce d'identité → démarre le chrono.
    Étape 2 : confirmation + "Voulez-vous acheter ce véhicule ?"
    ============================================================ */
 const reservationModal = document.getElementById('reservationModal');
 let reservationCarId = null;
-const resValidState = { name: false, phone: false, duration: false };
+// MODIFICATION : ajout de "identity: false" pour inclure la pièce d'identité dans la validation globale
+const resValidState = { name: false, phone: false, duration: false, identity: false };
 
 function openReservationModal(id) {
     const v = VEHICLES.find(x => x.id === id);
     if (!v) return;
+
+    // PROTECTION : Bloque l'ouverture si le véhicule est déjà réservé
+    const reservations = activeReservations();
+    if (reservations[v.id]) {
+        alert("Désolé, ce véhicule est actuellement réservé et ne peut pas être sélectionné.");
+        return;
+    }
+
     reservationCarId = id;
 
     document.getElementById('resCarName').textContent = v.nom;
@@ -316,16 +325,17 @@ function openReservationModal(id) {
     document.getElementById('resCarImg').src = v.img;
 
     // Reset du formulaire
-    ['resName', 'resPhone'].forEach(fid => {
+    ['resName', 'resPhone', 'resIdentityDoc'].forEach(fid => {
         const el = document.getElementById(fid);
-        el.value = '';
+        if (el.type === 'file') el.value = '';
+        else el.value = '';
         el.classList.remove('valid', 'invalid');
     });
     document.getElementById('resDuration').value = '';
-    ['resNameError', 'resPhoneError', 'resDurationError'].forEach(eid => {
+    ['resNameError', 'resPhoneError', 'resDurationError', 'resIdentityDocError'].forEach(eid => {
         document.getElementById(eid).hidden = true;
     });
-    resValidState.name = false; resValidState.phone = false; resValidState.duration = false;
+    resValidState.name = false; resValidState.phone = false; resValidState.duration = false; resValidState.identity = false;
     refreshResSubmitState();
 
     document.getElementById('resStepForm').hidden = false;
@@ -372,6 +382,27 @@ function validateResDuration() {
     if (!el.value) { errorEl.hidden = true; el.classList.remove('invalid', 'valid'); resValidState.duration = false; return; }
     resSetValid(el, errorEl); resValidState.duration = true;
 }
+
+// MODIFICATION : ajout de la fonction de validation pour la pièce d'identité
+function validateResIdentity() {
+    const el = document.getElementById('resIdentityDoc');
+    const errorEl = document.getElementById('resIdentityDocError');
+    if (!el.files || el.files.length === 0) {
+        el.classList.add('invalid');
+        el.classList.remove('valid');
+        if (errorEl) {
+            errorEl.textContent = "Veuillez joindre votre pièce d'identité.";
+            errorEl.hidden = false;
+        }
+        resValidState.identity = false;
+    } else {
+        el.classList.remove('invalid');
+        el.classList.add('valid');
+        if (errorEl) errorEl.hidden = true;
+        resValidState.identity = true;
+    }
+}
+
 function refreshResSubmitState() {
     const allValid = Object.values(resValidState).every(Boolean);
     const btn = document.getElementById('resSubmitBtn');
@@ -381,7 +412,12 @@ function refreshResSubmitState() {
 
 function handleReservationSubmit(e) {
     e.preventDefault();
-    validateResName(); validateResPhone(); validateResDuration(); refreshResSubmitState();
+    validateResName(); 
+    validateResPhone(); 
+    validateResDuration(); 
+    validateResIdentity(); // MODIFICATION : intégration de l'appel de validation de l'identité
+    refreshResSubmitState();
+    
     if (!Object.values(resValidState).every(Boolean)) {
         const firstInvalid = document.querySelector('#reservationForm .invalid');
         if (firstInvalid) firstInvalid.focus();
@@ -395,7 +431,33 @@ function handleReservationSubmit(e) {
     const durationHours = document.getElementById('resDuration').value;
     const durationLabel = document.getElementById('resDuration').selectedOptions[0].textContent;
 
-    ReservationStore.save(v.id, v.nom, durationHours);
+    const untilTs = Date.now() + (parseInt(durationHours, 10) * 3600 * 1000);
+
+    // Préparation des données FormData pour l'envoi du fichier et des infos à PHP
+    const formElement = document.getElementById('reservationForm');
+    const formData = new FormData(formElement);
+    formData.append('action', 'create');
+    formData.append('car_id', v.id);
+    formData.append('client_nom', name);
+    formData.append('client_telephone', phone);
+    formData.append('car_name', v.nom);
+    formData.append('until_ts', untilTs);
+    formData.append('duree_label', durationLabel);
+
+    // Envoi des données en arrière-plan vers api/booking.php
+    fetch('api/booking.php', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (!data.success) {
+            console.warn("Avertissement enregistrement BDD :", data.message);
+        }
+    })
+    .catch(err => {
+        console.error("Erreur réseau lors de l'enregistrement de la réservation :", err);
+    });
 
     const texte = `Bonjour AutoNems, je souhaite réserver ce véhicule :\n\n` +
         `Véhicule : ${v.nom} (${v.an})\n` +
@@ -463,6 +525,16 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('resName').addEventListener('input', () => { validateResName(); refreshResSubmitState(); });
     document.getElementById('resPhone').addEventListener('input', () => { validateResPhone(); refreshResSubmitState(); });
     document.getElementById('resDuration').addEventListener('change', () => { validateResDuration(); refreshResSubmitState(); });
+    
+    // Validation du champ fichier pièce d'identité
+    const identityInput = document.getElementById('resIdentityDoc');
+    if (identityInput) {
+        identityInput.addEventListener('change', () => {
+            validateResIdentity();
+            refreshResSubmitState();
+        });
+    }
+
     document.getElementById('resBuyNoBtn').addEventListener('click', closeReservationModal);
 
     document.addEventListener('keydown', (e) => {

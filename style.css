@@ -348,3 +348,41 @@ input.invalid, select.invalid { border-color: #ef4444 !important; box-shadow: 0 
     .modal-equip { grid-template-columns: 1fr; }
     .whatsapp-float { width: 52px; height: 52px; bottom: 18px; right: 18px; }
 }
+/* ---------- Amélioration de l'input fichier natif ---------- */
+#reservationForm input[type="file"] {
+    display: block;
+    width: 100%;
+    padding: 10px 14px;
+    font-size: 0.85rem;
+    color: var(--primary-dark);
+    background: #f8fafc;
+    border: 1.5px dashed #cbd5e1;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all 0.25s ease;
+    box-sizing: border-box;
+}
+
+#reservationForm input[type="file"]:hover {
+    border-color: var(--accent-gold);
+    background: rgba(217, 119, 6, 0.04);
+}
+
+/* Personnalisation du bouton "Parcourir" intégré au navigateur */
+#reservationForm input[type="file"]::file-selector-button {
+    background: var(--primary-dark);
+    color: #fff;
+    padding: 8px 16px;
+    border: none;
+    border-radius: 6px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    margin-right: 14px;
+    transition: background 0.2s ease, transform 0.2s ease;
+}
+
+#reservationForm input[type="file"]::file-selector-button:hover {
+    background: var(--accent-gold);
+    transform: translateY(-1px);
+}

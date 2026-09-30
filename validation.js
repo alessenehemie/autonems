@@ -1,5 +1,3 @@
-
-
 const AutoNemsValidation = (function () {
     /* Nom : lettres (accents inclus), espaces, apostrophes, tirets.
        Exige au moins deux "mots" (nom + prénom) de 2 lettres min chacun. */
@@ -31,5 +29,19 @@ const AutoNemsValidation = (function () {
         return { valid: true };
     }
 
-    return { validateName, validatePhone };
+    /* AJOUT : Fonction pour valider la pièce d'identité */
+    function validateIdentityDoc(fileInput) {
+        if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
+            return { valid: false, message: "Veuillez joindre votre pièce d'identité ou passeport." };
+        }
+        const file = fileInput.files[0];
+        // Optionnel : Vérification de la taille (ex: max 5 Mo)
+        const maxSize = 5 * 1024 * 1024; 
+        if (file.size > maxSize) {
+            return { valid: false, message: "Le fichier est trop volumineux (maximum 5 Mo)." };
+        }
+        return { valid: true };
+    }
+
+    return { validateName, validatePhone, validateIdentityDoc };
 })();

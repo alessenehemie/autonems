@@ -40,7 +40,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     initSettingsForm();
     initReservationsActions();
     initSalesModal(); 
-    initBookingModal(); // Ajouté : Initialisation de la modale d'ajout de réservation
+    initBookingModal();
 
     await Promise.all([loadVehicules(), loadReservations(), loadSales()]);
     updateStats();
@@ -106,12 +106,13 @@ async function loadVehicules() {
         renderVehicules();
     } catch (err) {
         console.error(err);
-        tbody.innerHTML = `<tr class="empty-row"><td colspan="7">Erreur de chargement des véhicules.</td></tr>`;
+        if(tbody) tbody.innerHTML = `<tr class="empty-row"><td colspan="7">Erreur de chargement des véhicules.</td></tr>`;
     }
 }
  
 function renderVehicules() {
     const tbody = document.getElementById('stockTableBody');
+    if(!tbody) return;
     if (!currentVehicules.length) {
         tbody.innerHTML = `<tr class="empty-row"><td colspan="7">Aucun véhicule pour le moment. Clique sur "+ Ajouter une nouvelle voiture".</td></tr>`;
         return;
@@ -288,7 +289,7 @@ async function handleVehicleFormSubmit(e) {
     }
 }
  
-/* ---------- Chargement + rendu des réservations ---------- */
+/* ---------- Chargement + rendu des réservations (Ordre modifié) ---------- */
 async function loadReservations() {
     const tbody = document.getElementById('reservationsTableBody');
     try {
@@ -299,7 +300,7 @@ async function loadReservations() {
         renderReservations();
     } catch (err) {
         console.error(err);
-        if(tbody) tbody.innerHTML = `<tr class="empty-row"><td colspan="7">Erreur de chargement des réservations.</td></tr>`;
+        if(tbody) tbody.innerHTML = `<tr class="empty-row"><td colspan="8">Erreur de chargement des réservations.</td></tr>`;
     }
 }
  
@@ -307,20 +308,28 @@ function renderReservations() {
     const tbody = document.getElementById('reservationsTableBody');
     if(!tbody) return;
     if (!currentReservations.length) {
-        tbody.innerHTML = `<tr class="empty-row"><td colspan="7">Aucune réservation reçue pour le moment.</td></tr>`;
+        tbody.innerHTML = `<tr class="empty-row"><td colspan="8">Aucune réservation reçue pour le moment.</td></tr>`;
         return;
     }
-    tbody.innerHTML = currentReservations.map(r => `
-        <tr>
-            <td><strong>${r.client_nom || 'Client'}</strong></td>
-            <td>${r.client_telephone || '—'}</td>
-            <td>${r.car_name || 'Véhicule'}</td>
-            <td>${r.duree_label || '—'}</td>
-            <td><span class="badge ${r.en_cours ? '' : 'badge-off'}">${r.en_cours ? 'En cours' : 'Terminée'}</span></td>
-            <td>${r.created_at ? new Date(r.created_at).toLocaleString('fr-FR') : '—'}</td>
-            <td><button class="btn-icon btn-delete" data-id="${r.id}" style="background:#ef4444; color:#fff; border:none; padding:6px 12px; border-radius:6px; cursor:pointer; font-weight:600;">Supprimer</button></td>
-        </tr>
-    `).join('');
+    tbody.innerHTML = currentReservations.map(r => {
+        const idCardPath = r.identity_doc || r.id_card;
+        const idCardHtml = idCardPath 
+            ? `<a href="${resolveImgSrc(idCardPath)}" target="_blank"><img class="table-thumb" src="${resolveImgSrc(idCardPath)}" alt="Carte d'identité" style="width:40px; height:40px; object-fit:cover; border-radius:4px; cursor:pointer;" title="Cliquer pour agrandir"></a>` 
+            : '—';
+
+        return `
+            <tr>
+                <td><strong>${r.client_nom || 'Client'}</strong></td>
+                <td>${r.client_telephone || '—'}</td>
+                <td>${r.car_name || 'Véhicule'}</td>
+                <td>${r.duree_label || '—'}</td>
+                <td>${idCardHtml}</td>
+                <td><span class="badge ${r.en_cours ? '' : 'badge-off'}">${r.en_cours ? 'En cours' : 'Terminée'}</span></td>
+                <td>${r.created_at ? new Date(r.created_at).toLocaleString('fr-FR') : '—'}</td>
+                <td><button class="btn-icon btn-delete" data-id="${r.id}" style="background:#ef4444; color:#fff; border:none; padding:6px 12px; border-radius:6px; cursor:pointer; font-weight:600;">Supprimer</button></td>
+            </tr>
+        `;
+    }).join('');
  
     tbody.querySelectorAll('.btn-delete').forEach(btn => {
         btn.addEventListener('click', () => deleteReservation(btn.dataset.id));
@@ -349,7 +358,7 @@ async function deleteReservation(id) {
     }
 }
 
-/* ---------- Gestion de l'ajout manuel de réservation (Nouveau) ---------- */
+/* ---------- Gestion de l'ajout manuel de réservation ---------- */
 function initBookingModal() {
     const overlay = document.getElementById('bookingModalOverlay');
     const openBtn = document.getElementById('openAddBookingModalBtn');
@@ -357,7 +366,20 @@ function initBookingModal() {
     const cancelBtn = document.getElementById('bookingFormCancel');
     const form = document.getElementById('bookingForm');
 
-    if(openBtn) openBtn.addEventListener('click', () => { if(overlay) overlay.classList.add('open'); });
+    // Modification pour forcer le chargement et l'affichage des véhicules à chaque ouverture
+    if(openBtn) openBtn.addEventListener('click', async () => { 
+        const select = document.getElementById('bookingCarId');
+        
+        // Recharge systématiquement pour s'assurer d'avoir les derniers véhicules ajoutés
+        await loadVehicules();
+
+        if (select) {
+            select.innerHTML = '<option value="">-- Choisir un véhicule --</option>' + 
+                currentVehicules.map(v => `<option value="${v.id}">${v.nom} (${v.marque || ''})</option>`).join('');
+        }
+        if(overlay) overlay.classList.add('open'); 
+    });
+
     if(closeBtn) closeBtn.addEventListener('click', () => { if(overlay) overlay.classList.remove('open'); });
     if(cancelBtn) cancelBtn.addEventListener('click', () => { if(overlay) overlay.classList.remove('open'); });
     if(overlay) overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.classList.remove('open'); });
@@ -365,6 +387,16 @@ function initBookingModal() {
     if(form) {
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
+            
+            const submitBtn = form.querySelector('button[type="submit"]') || form.querySelector('input[type="submit"]');
+            if (submitBtn && submitBtn.disabled) return;
+
+            if (submitBtn) {
+                submitBtn.disabled = true;
+                submitBtn.dataset.originalText = submitBtn.textContent;
+                submitBtn.textContent = 'Enregistrement...';
+            }
+
             const formData = new FormData(form);
             formData.set('action', 'create');
 
@@ -382,6 +414,11 @@ function initBookingModal() {
                 updateStats();
             } catch (err) {
                 alert('Erreur : ' + err.message);
+            } finally {
+                if (submitBtn) {
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = submitBtn.dataset.originalText || 'Enregistrer';
+                }
             }
         });
     }
@@ -441,6 +478,16 @@ function initSalesModal() {
     if(form) {
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
+            
+            const submitBtn = form.querySelector('button[type="submit"]') || form.querySelector('input[type="submit"]');
+            if (submitBtn && submitBtn.disabled) return;
+
+            if (submitBtn) {
+                submitBtn.disabled = true;
+                submitBtn.dataset.originalText = submitBtn.textContent;
+                submitBtn.textContent = 'Enregistrement...';
+            }
+
             const formData = new FormData(form);
             formData.set('action', 'create');
 
@@ -458,6 +505,11 @@ function initSalesModal() {
                 updateStats();
             } catch (err) {
                 alert('Erreur : ' + err.message);
+            } finally {
+                if (submitBtn) {
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = submitBtn.dataset.originalText || 'Enregistrer';
+                }
             }
         });
     }
