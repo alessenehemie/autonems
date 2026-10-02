@@ -1,5 +1,5 @@
 <?php
-// api/admin_settings.php — Gère la mise à jour permanente de l'email et du mot de passe admin en BDD
+// api/admin_settings.php — Gère la mise à jour de l'email et/ou du mot de passe admin en BDD
 session_start();
 header('Content-Type: application/json; charset=utf-8');
 header('Access-Control-Allow-Origin: *');
@@ -11,13 +11,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
-// Vérifie si l'admin est connecté
-if (!isset($_SESSION['admin_logged']) || $_SESSION['admin_logged'] !== true) {
+// Vérifie si l'admin est connecté (corrigé pour correspondre à $_SESSION['autonems_admin'] du login)
+if (!isset($_SESSION['autonems_admin']) || $_SESSION['autonems_admin'] !== true) {
     echo json_encode(['success' => false, 'message' => 'Non autorisé.']);
     exit;
 }
 
-// Connexion à la base de données unifiée (identique à booking.php)
+// Connexion à la base de données
 $host = 'localhost';
 $dbname = 'autonems';
 $username = 'root';      
@@ -40,30 +40,51 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $newPassword       = $_POST['new_password'] ?? '';
     $currentAdminEmail = $_SESSION['admin_email'] ?? '';
 
+    // Validations de base
     if (empty($newEmail)) {
         echo json_encode(['success' => false, 'message' => "L'adresse e-mail ne peut pas être vide."]);
         exit;
     }
 
+    if (empty($oldPassword)) {
+        echo json_encode(['success' => false, 'message' => "Le mot de passe actuel est requis pour valider les modifications."]);
+        exit;
+    }
+
     try {
-        // 1. Mise à jour de l'e-mail dans la base de données (table 'admins')
-        // Assure-toi que ta table s'appelle bien 'admins' et possède les colonnes 'email' et 'password'
+        // 1. Récupérer l'administrateur actuel en BDD
+        $stmtAdmin = $pdo->prepare("SELECT * FROM admins WHERE email = ?");
+        $stmtAdmin->execute([$currentAdminEmail]);
+        $adminData = $stmtAdmin->fetch();
+
+        if (!$adminData) {
+            echo json_encode(['success' => false, 'message' => 'Administrateur introuvable en base de données.']);
+            exit;
+        }
+
+        // 2. Vérifier que le mot de passe actuel saisi est correct
+        if (!password_verify($oldPassword, $adminData['password'])) {
+            echo json_encode(['success' => false, 'message' => 'Le mot de passe actuel est incorrect.']);
+            exit;
+        }
+
+        // 3. Mettre à jour l'e-mail dans la base de données
         $stmt = $pdo->prepare("UPDATE admins SET email = ? WHERE email = ?");
         $stmt->execute([$newEmail, $currentAdminEmail]);
 
-        // 2. Si un nouveau mot de passe est renseigné, on le met à jour de façon sécurisée (hash)
+        // 4. Si un nouveau mot de passe est renseigné, on le hache et on le met à jour
         if (!empty($newPassword)) {
             $hashedPassword = password_hash($newPassword, PASSWORD_DEFAULT);
             $stmtPwd = $pdo->prepare("UPDATE admins SET password = ? WHERE email = ?");
             $stmtPwd->execute([$hashedPassword, $newEmail]);
         }
 
-        // 3. Mise à jour de la session en cours pour refléter le nouveau mail immédiatement
+        // 5. Mettre à jour la session en cours avec le nouvel e-mail
         $_SESSION['admin_email'] = $newEmail;
 
         echo json_encode([
             'success' => true,
-            'message' => 'Paramètres mis à jour et enregistrés avec succès dans la base de données !',
+            'message' => 'Compte (email / mot de passe) mis à jour avec succès !',
             'email' => $newEmail
         ]);
     } catch (Exception $e) {

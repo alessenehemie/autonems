@@ -320,7 +320,7 @@
             <button type="button" class="veh-modal-close" id="bookingModalClose">&times;</button>
             <h2>Ajouter une réservation</h2>
 
-            <form id="bookingForm">
+            <form id="bookingForm" enctype="multipart/form-data">
                 <div class="form-grid">
                     <div>
                         <label for="bookingClientNom">Nom du client *</label>
@@ -337,8 +337,29 @@
                         </select>
                     </div>
                     <div class="full">
-                        <label for="bookingDuree">Durée de location *</label>
-                        <input type="text" id="bookingDuree" name="duree_label" required placeholder="Ex : 3 jours">
+                        <label for="bookingDurationHours">Durée de la réservation *</label>
+                        <select id="bookingDurationHours" name="duration_hours" required>
+                            <option value="2">2 heures</option>
+                            <option value="6">6 heures</option>
+                            <option value="12">12 heures</option>
+                            <option value="24" selected>1 jour (24h)</option>
+                            <option value="48">2 jours (48h)</option>
+                            <option value="72">3 jours</option>
+                            <option value="168">1 semaine (7 jours)</option>
+                            <option value="336">2 semaines (14 jours)</option>
+                        </select>
+                    </div>
+                    <div class="full">
+                        <label for="bookingStatut">Statut de la réservation</label>
+                        <select id="bookingStatut" name="statut">
+                            <option value="En cours">En cours</option>
+                            <option value="Confirmée">Confirmée</option>
+                            <option value="Terminée">Terminée</option>
+                        </select>
+                    </div>
+                    <div class="full">
+                        <label for="bookingIdCard">Pièce d'identité (Image / PDF)</label>
+                        <input type="file" id="bookingIdCard" name="id_card" accept="image/*,application/pdf">
                     </div>
                 </div>
 

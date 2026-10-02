@@ -16,6 +16,15 @@ function resolveImgSrc(img) {
     if (/^https?:\/\//i.test(img)) return img;
     return '../' + img; 
 }
+
+// Fonction utilitaire pour transformer un nom en slug (ex: "Toyota RAV4" -> "toyota-rav4")
+function slugify(text) {
+    return text.toString().toLowerCase()
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // Supprime les accents
+        .replace(/\s+/g, '-')                            // Remplace les espaces par des tirets
+        .replace(/[^\w\-]+/g, '')                        // Supprime les caractères spéciaux
+        .replace(/\-\-+/g, '-');                         // Évite les tirets multiples
+}
  
 /* ---------- Garde d'accès + init ---------- */
 document.addEventListener('DOMContentLoaded', async () => {
@@ -82,7 +91,7 @@ function initLogout() {
 function updateStats() {
     const total = currentVehicules.length;
     const dispo = currentVehicules.filter(v => v.dispo).length;
-    const enCours = currentReservations.filter(r => r.en_cours).length;
+    const enCours = currentReservations.filter(r => r.en_cours || r.statut === 'En cours' || r.statut === 'Confirmée').length;
     const totalReservations = currentReservations.length;
     const totalSales = currentSales.length;
  
@@ -289,7 +298,7 @@ async function handleVehicleFormSubmit(e) {
     }
 }
  
-/* ---------- Chargement + rendu des réservations (Ordre modifié) ---------- */
+/* ---------- Chargement + rendu des réservations (Avec affichage ID Card & Statut) ---------- */
 async function loadReservations() {
     const tbody = document.getElementById('reservationsTableBody');
     try {
@@ -312,10 +321,15 @@ function renderReservations() {
         return;
     }
     tbody.innerHTML = currentReservations.map(r => {
-        const idCardPath = r.identity_doc || r.id_card;
+        // Gère la récupération du chemin du fichier (depuis id_card ou identity_doc)
+        const idCardPath = r.id_card || r.identity_doc;
         const idCardHtml = idCardPath 
             ? `<a href="${resolveImgSrc(idCardPath)}" target="_blank"><img class="table-thumb" src="${resolveImgSrc(idCardPath)}" alt="Carte d'identité" style="width:40px; height:40px; object-fit:cover; border-radius:4px; cursor:pointer;" title="Cliquer pour agrandir"></a>` 
             : '—';
+
+        // Gestion du texte et du style du badge de statut
+        const statut = r.statut || (r.en_cours ? 'En cours' : 'Terminée');
+        const isOff = statut === 'Terminée' || r.en_cours === false;
 
         return `
             <tr>
@@ -324,7 +338,7 @@ function renderReservations() {
                 <td>${r.car_name || 'Véhicule'}</td>
                 <td>${r.duree_label || '—'}</td>
                 <td>${idCardHtml}</td>
-                <td><span class="badge ${r.en_cours ? '' : 'badge-off'}">${r.en_cours ? 'En cours' : 'Terminée'}</span></td>
+                <td><span class="badge ${isOff ? 'badge-off' : ''}">${statut}</span></td>
                 <td>${r.created_at ? new Date(r.created_at).toLocaleString('fr-FR') : '—'}</td>
                 <td><button class="btn-icon btn-delete" data-id="${r.id}" style="background:#ef4444; color:#fff; border:none; padding:6px 12px; border-radius:6px; cursor:pointer; font-weight:600;">Supprimer</button></td>
             </tr>
@@ -336,10 +350,13 @@ function renderReservations() {
     });
 }
  
+// Fonction de rafraîchissement immédiat (pollOnce) et configuration de l'intervalle automatique
+function pollOnce() {
+    Promise.all([loadReservations(), loadSales()]).then(updateStats);
+}
+
 function initReservationsActions() {
-    setInterval(() => {
-        Promise.all([loadReservations(), loadSales()]).then(updateStats);
-    }, 30000);
+    setInterval(pollOnce, 15000); // Rafraîchissement automatique toutes les 15 secondes
 }
  
 async function deleteReservation(id) {
@@ -351,8 +368,9 @@ async function deleteReservation(id) {
         });
         const data = await res.json();
         if (!data.success) throw new Error(data.message);
-        await loadReservations();
-        updateStats();
+        
+        // Rafraîchissement immédiat après la suppression
+        pollOnce();
     } catch (err) {
         alert('Erreur lors de la suppression : ' + err.message);
     }
@@ -366,16 +384,17 @@ function initBookingModal() {
     const cancelBtn = document.getElementById('bookingFormCancel');
     const form = document.getElementById('bookingForm');
 
-    // Modification pour forcer le chargement et l'affichage des véhicules à chaque ouverture
     if(openBtn) openBtn.addEventListener('click', async () => { 
         const select = document.getElementById('bookingCarId');
         
-        // Recharge systématiquement pour s'assurer d'avoir les derniers véhicules ajoutés
         await loadVehicules();
 
         if (select) {
             select.innerHTML = '<option value="">-- Choisir un véhicule --</option>' + 
-                currentVehicules.map(v => `<option value="${v.id}">${v.nom} (${v.marque || ''})</option>`).join('');
+                currentVehicules.map(v => {
+                    const carSlug = slugify(v.nom);
+                    return `<option value="${carSlug}">${v.nom} (${v.marque || ''})</option>`;
+                }).join('');
         }
         if(overlay) overlay.classList.add('open'); 
     });
@@ -410,8 +429,9 @@ function initBookingModal() {
 
                 overlay.classList.remove('open');
                 form.reset();
-                await loadReservations();
-                updateStats();
+                
+                // Rafraîchissement immédiat après l'enregistrement d'une réservation
+                pollOnce();
             } catch (err) {
                 alert('Erreur : ' + err.message);
             } finally {
@@ -501,8 +521,9 @@ function initSalesModal() {
 
                 overlay.classList.remove('open');
                 form.reset();
-                await loadSales();
-                updateStats();
+                
+                // Rafraîchissement immédiat après l'enregistrement d'une vente
+                pollOnce();
             } catch (err) {
                 alert('Erreur : ' + err.message);
             } finally {
@@ -524,8 +545,9 @@ async function deleteSale(id) {
         });
         const data = await res.json();
         if (!data.success) throw new Error(data.message);
-        await loadSales();
-        updateStats();
+        
+        // Rafraîchissement immédiat après la suppression d'une vente
+        pollOnce();
     } catch (err) {
         alert('Erreur lors de la suppression : ' + err.message);
     }

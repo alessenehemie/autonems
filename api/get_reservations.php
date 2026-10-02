@@ -14,10 +14,20 @@ require __DIR__ . '/db.php';
 
 $nowMs = (int) round(microtime(true) * 1000);
 
+// AJOUT : avant de supprimer les réservations expirées, on remet les véhicules concernés en "disponible"
+// dans la table vehicles (sinon dispo restait à 0 indéfiniment côté admin).
+$stmtExpired = $pdo->prepare("SELECT car_id, car_name FROM reservations WHERE until_ts <= :now");
+$stmtExpired->execute([':now' => $nowMs]);
+$stmtRelease = $pdo->prepare("UPDATE vehicles SET dispo = 1 WHERE nom = ? OR LOWER(REPLACE(nom, ' ', '-')) = ?");
+foreach ($stmtExpired->fetchAll() as $exp) {
+    $stmtRelease->execute([$exp['car_name'], $exp['car_id']]);
+}
+
 // Ménage : supprime les réservations expirées
 $pdo->prepare("DELETE FROM reservations WHERE until_ts <= :now")->execute([':now' => $nowMs]);
 
-$stmt = $pdo->query("SELECT car_id, car_name, until_ts FROM reservations");
+// MODIFICATION : on ne renvoie que les réservations réellement actives (statut différent de "Terminée")
+$stmt = $pdo->query("SELECT car_id, car_name, until_ts FROM reservations WHERE en_cours = 1 AND statut <> 'Terminée'");
 $rows = $stmt->fetchAll();
 
 $result = [];

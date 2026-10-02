@@ -36,70 +36,70 @@ function observeReveals(root = document) {
    "description" et "equipements" alimentent la fiche détaillée (modal). */
 const VEHICLES = [
     {
-        id: "tucson", nom: "Hyundai Tucson", marque: "Hyundai", img: "image/hundai.jpg",
+        id: "hyundai-tucson", nom: "Hyundai Tucson", marque: "Hyundai", img: "image/hundai.jpg",
         an: 2024, km: "15 000", boite: "Automatique", carburant: "Essence", places: 5, couleur: "Gris métallisé",
         loc: 45000, vente: 16500000, dispo: true,
         description: "Un SUV familial moderne et fiable, parfait pour la ville comme pour les routes de l'intérieur. Confort, faible consommation et look actuel.",
         equipements: ["Climatisation automatique", "Caméra de recul", "Bluetooth & Apple CarPlay", "Régulateur de vitesse", "Jantes alliage 18\""]
     },
     {
-        id: "gle", nom: "Mercedes-Benz GLE", marque: "Mercedes", img: "image/gle.jpg",
+        id: "mercedes-benz-gle", nom: "Mercedes-Benz GLE", marque: "Mercedes", img: "image/gle.jpg",
         an: 2022, km: "38 000", boite: "Automatique", carburant: "Essence", places: 5, couleur: "Vert émeraude",
         loc: 70000, vente: 24000000, dispo: true,
         description: "Le SUV premium par excellence : présence, puissance et intérieur luxueux. Idéal pour vos déplacements professionnels ou cérémonies.",
         equipements: ["Sièges cuir chauffants", "Toit panoramique", "Système AMG Line", "Caméra 360°", "Suspension pneumatique"]
     },
     {
-        id: "rangerover", nom: "Range Rover (Nouvelle Gen)", marque: "Land Rover", img: "image/rangerover.jpg",
+        id: "range-rover-nouvelle-gen", nom: "Range Rover (Nouvelle Gen)", marque: "Land Rover", img: "image/rangerover.jpg",
         an: 2023, km: "22 000", boite: "Automatique", carburant: "Diesel", places: 5, couleur: "Marron truffe",
         loc: 120000, vente: 38500000, dispo: true,
         description: "L'incarnation du luxe britannique. Un SUV d'exception pour ceux qui veulent voyager dans le plus grand confort, sur route comme en tout-terrain.",
         equipements: ["Intérieur cuir Windsor", "Suspension adaptative", "Écran tactile 13.1\"", "4 roues motrices intégrales", "Assistant de conduite"]
     },
     {
-        id: "bmw", nom: "BMW M4", marque: "BMW", img: "image/bmw.jpg",
+        id: "bmw-m4", nom: "BMW M4", marque: "BMW", img: "image/bmw.jpg",
         an: 2021, km: "41 000", boite: "Automatique", carburant: "Essence", places: 4, couleur: "Blanc Alpin",
         loc: 85000, vente: 21500000, dispo: true,
         description: "Une pure sportive allemande. Design agressif, sensations fortes garanties — pour les amateurs de conduite dynamique et de style.",
         equipements: ["Kit carrosserie M Performance", "Sièges baquets", "Échappement sport", "Jantes 19\"/20\"", "Mode Sport +"]
     },
     {
-        id: "kia", nom: "Kia Sportage GT-Line", marque: "Kia", img: "image/kia.jpg",
+        id: "kia-sportage-gt-line", nom: "Kia Sportage GT-Line", marque: "Kia", img: "image/kia.jpg",
         an: 2025, km: "8 000", boite: "Automatique", carburant: "Essence", places: 5, couleur: "Gris cyber",
         loc: 50000, vente: 13200000, dispo: true,
         description: "Le tout dernier Sportage : design futuriste, faible kilométrage, garantie constructeur encore active. Excellent rapport qualité-prix.",
         equipements: ["Écran incurvé double", "Chargeur à induction", "Caméra de recul HD", "Sièges chauffants/ventilés", "Garantie constructeur"]
     },
     {
-        id: "peugeot", nom: "Peugeot e-308 SW", marque: "Peugeot", img: "image/peugeot.jpg",
+        id: "peugeot-e-308-sw", nom: "Peugeot e-308 SW", marque: "Peugeot", img: "image/peugeot.jpg",
         an: 2024, km: "12 000", boite: "Automatique", carburant: "Électrique", places: 5, couleur: "Blanc nacré",
         loc: 48000, vente: 14900000, dispo: true,
         description: "Le break électrique idéal pour rouler propre sans sacrifier l'espace ni le style. Silencieux, économique et très agréable au quotidien.",
         equipements: ["100% électrique", "i-Cockpit numérique", "Recharge rapide", "Grand coffre familial", "Aides à la conduite"]
     },
     {
-        id: "corolla", nom: "Toyota Corolla", marque: "Toyota", img: "https://images.unsplash.com/photo-1638618164682-12b986ec2a75?auto=format&fit=crop&w=1200&q=80",
+        id: "toyota-corolla", nom: "Toyota Corolla", marque: "Toyota", img: "https://images.unsplash.com/photo-1638618164682-12b986ec2a75?auto=format&fit=crop&w=1200&q=80",
         an: 2022, km: "29 000", boite: "Automatique", carburant: "Essence", places: 5, couleur: "Blanc",
         loc: 30000, vente: 10800000, dispo: true,
         description: "La berline la plus fiable du marché ivoirien. Entretien économique, pièces disponibles partout à Abidjan — un choix sûr et sans souci.",
         equipements: ["Consommation très basse", "Climatisation", "Bluetooth", "Sellerie tissu robuste", "Faible coût d'entretien"]
     },
     {
-        id: "hilux", nom: "Toyota Hilux Double Cabine", marque: "Toyota", img: "https://images.unsplash.com/photo-1621786805936-65e5e163c1e9?auto=format&fit=crop&w=1200&q=80",
+        id: "toyota-hilux-double-cabine", nom: "Toyota Hilux Double Cabine", marque: "Toyota", img: "https://images.unsplash.com/photo-1621786805936-65e5e163c1e9?auto=format&fit=crop&w=1200&q=80",
         an: 2021, km: "52 000", boite: "Manuelle", carburant: "Diesel", places: 5, couleur: "Blanc",
         loc: 55000, vente: 17800000, dispo: true,
         description: "Le pick-up increvable, taillé pour les chantiers comme pour les pistes. Robuste, spacieux, capable de tout transporter.",
         equipements: ["4x4 enclenchable", "Benne utilitaire", "Châssis renforcé", "Climatisation", "Idéal chantier/brousse"]
     },
     {
-        id: "prado", nom: "Toyota Land Cruiser Prado", marque: "Toyota", img: "https://images.unsplash.com/photo-1650530579355-7ad9d4766043?auto=format&fit=crop&w=1200&q=80",
+        id: "toyota-land-cruiser-prado", nom: "Toyota Land Cruiser Prado", marque: "Toyota", img: "https://images.unsplash.com/photo-1650530579355-7ad9d4766043?auto=format&fit=crop&w=1200&q=80",
         an: 2022, km: "31 000", boite: "Automatique", carburant: "Diesel", places: 7, couleur: "Noir",
         loc: 95000, vente: 29500000, dispo: true,
         description: "Le 4x4 le plus recherché à Abidjan : fiable, puissant, spacieux jusqu'à 7 places. Parfait pour les familles et les longs trajets.",
         equipements: ["7 places", "4 roues motrices", "Climatisation 3 zones", "Grand coffre", "Excellente tenue de route"]
     },
     {
-        id: "classec", nom: "Mercedes-Benz Classe C", marque: "Mercedes", img: "https://images.unsplash.com/photo-1593950315186-76a92975b60c?auto=format&fit=crop&w=1200&q=80",
+        id: "mercedes-benz-classe-c", nom: "Mercedes-Benz Classe C", marque: "Mercedes", img: "https://images.unsplash.com/photo-1593950315186-76a92975b60c?auto=format&fit=crop&w=1200&q=80",
         an: 2023, km: "18 000", boite: "Automatique", carburant: "Essence", places: 5, couleur: "Argent",
         loc: 65000, vente: 22800000, dispo: true,
         description: "L'élégance discrète d'une berline allemande premium. Confort de conduite exceptionnel pour vos rendez-vous d'affaires.",
@@ -119,6 +119,23 @@ function activeReservations() {
         if (r && r.until > now) out[id] = r;
     });
     return out;
+}
+/* AJOUT : une réservation faite depuis l'admin utilise un identifiant basé sur le nom
+   (ex: "hyundai-tucson") alors que la flotte ci-dessus utilise des ids courts (ex: "tucson").
+   Cette fonction retrouve la réservation d'un véhicule quel que soit le format de l'id. */
+function slugify(text) {
+    return String(text).toLowerCase()
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .replace(/\s+/g, '-')
+        .replace(/[^\w\-]+/g, '')
+        .replace(/\-\-+/g, '-');
+}
+function getReservation(reservations, v) {
+    if (!reservations) return undefined;
+    if (reservations[v.id]) return reservations[v.id];
+    const slug = slugify(v.nom);
+    if (reservations[slug]) return reservations[slug];
+    return Object.values(reservations).find(r => r && r.car && slugify(r.car) === slug);
 }
 function formatRemaining(ms) {
     if (ms <= 0) return "";
@@ -140,7 +157,7 @@ function lienAchat(v) {
 
 /* ---------- Rendu des cartes ---------- */
 function carteHTML(v, reservations, index) {
-    const reservation = reservations[v.id];
+    const reservation = getReservation(reservations, v);
     const isReservedNow = !!reservation;
     const dispoFinal = v.dispo && !isReservedNow;
     let badgeLabel = dispoFinal ? 'Disponible' : 'Réservé';
@@ -224,7 +241,7 @@ function openModal(id) {
     const v = VEHICLES.find(x => x.id === id);
     if (!v) return;
     const reservations = activeReservations();
-    const reservation = reservations[v.id];
+    const reservation = getReservation(reservations, v);
     const dispoFinal = v.dispo && !reservation;
 
     document.getElementById('modalImg').src = v.img;
@@ -313,7 +330,7 @@ function openReservationModal(id) {
 
     // PROTECTION : Bloque l'ouverture si le véhicule est déjà réservé
     const reservations = activeReservations();
-    if (reservations[v.id]) {
+    if (getReservation(reservations, v)) {
         alert("Désolé, ce véhicule est actuellement réservé et ne peut pas être sélectionné.");
         return;
     }
@@ -443,6 +460,7 @@ function handleReservationSubmit(e) {
     formData.append('car_name', v.nom);
     formData.append('until_ts', untilTs);
     formData.append('duree_label', durationLabel);
+    formData.append('duration_hours', durationHours); // AJOUT : le serveur calcule lui-même l'heure de fin (horloge du serveur)
 
     // Envoi des données en arrière-plan vers api/booking.php
     fetch('api/booking.php', {
@@ -453,7 +471,10 @@ function handleReservationSubmit(e) {
     .then(data => {
         if (!data.success) {
             console.warn("Avertissement enregistrement BDD :", data.message);
+            alert("Votre réservation n'a pas pu être enregistrée : " + data.message); // AJOUT : prévient le client si le serveur refuse
         }
+        // AJOUT : rafraîchit tout de suite l'affichage ("Réservé") sans attendre les 15 s
+        if (window.ReservationStore && ReservationStore.refresh) ReservationStore.refresh();
     })
     .catch(err => {
         console.error("Erreur réseau lors de l'enregistrement de la réservation :", err);
@@ -491,7 +512,9 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     /* ---------- Rafraîchissement automatique de l'interface des cartes ---------- */
-    ReservationStore.subscribe(function(activeReservations) {
+    ReservationStore.subscribe(function() {
+        // MODIFICATION : liste filtrée (non expirée) + getReservation() pour gérer les ids venant de l'admin
+        const actives = activeReservations();
         // Parcourt tous les véhicules définis dans votre tableau VEHICLES
         VEHICLES.forEach(car => {
             // Sélectionne la carte correspondante grâce à son attribut data-id
@@ -499,7 +522,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!card) return;
 
             const badge = card.querySelector('.badge');
-            const reservation = activeReservations[car.id];
+            const reservation = getReservation(actives, car);
             const isReservedNow = !!reservation;
             const dispoFinal = car.dispo && !isReservedNow;
 

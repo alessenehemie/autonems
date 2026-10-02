@@ -26,7 +26,18 @@ const ReservationStore = (function () {
     let lastKnown = {};
 
     function notify(data) {
-        lastKnown = data || {};
+        // Nettoyage local de sécurité pour masquer instantanément les réservations expirées
+        // MODIFICATION : le serveur renvoie "until" (et non "expiresAt") ; on accepte les deux.
+        const now = Date.now();
+        const cleaned = {};
+        for (const carId in (data || {})) {
+            const item = data[carId];
+            const end = Number(item && (item.until || item.expiresAt || 0));
+            if (end && end <= now) continue; // expirée -> on l'ignore
+            cleaned[carId] = item;
+        }
+        lastKnown = cleaned;
+
         listeners.forEach(cb => cb(lastKnown));
     }
 
@@ -86,5 +97,6 @@ const ReservationStore = (function () {
             .finally(pollOnce); // rafraîchit immédiatement l'affichage pour tout le monde
     }
 
-    return { subscribe, save };
+    // AJOUT : refresh() permet de recharger immédiatement les réservations depuis le serveur
+    return { subscribe, save, refresh: pollOnce };
 })();
