@@ -34,7 +34,9 @@ function observeReveals(root = document) {
 /* ---------- VOTRE FLOTTE RÉELLE ---------- */
 /* "loc" = prix de location/jour, "vente" = prix de vente, en FCFA.
    "description" et "equipements" alimentent la fiche détaillée (modal). */
-const VEHICLES = [
+/* Liste de SECOURS : utilisée seulement si api/vehicules.php est injoignable.
+   La vraie source des véhicules est désormais la base de données (voir loadVehicles). */
+const FALLBACK_VEHICLES = [
     {
         id: "hyundai-tucson", nom: "Hyundai Tucson", marque: "Hyundai", img: "image/hundai.jpg",
         an: 2024, km: "15 000", boite: "Automatique", carburant: "Essence", places: 5, couleur: "Gris métallisé",
@@ -107,7 +109,13 @@ const VEHICLES = [
     }
 ];
 
-const fmt = n => n.toLocaleString("fr-FR").replace(/\u202f|\u00a0/g, " ") + " FCFA";
+let VEHICLES = FALLBACK_VEHICLES;
+
+/* Les prix venant de MySQL arrivent souvent en texte ("72800000.00") : on force Number() */
+const fmt = n => Number(n || 0).toLocaleString("fr-FR").replace(/\u202f|\u00a0/g, " ") + " FCFA";
+
+/* Échappe le texte venant de la base avant de l'injecter dans le HTML (anti-XSS) */
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
 /* ---------- Réservations en direct (alimentées par ReservationStore) ---------- */
 let liveReservations = {};
@@ -116,7 +124,7 @@ function activeReservations() {
     const out = {};
     Object.keys(liveReservations || {}).forEach(id => {
         const r = liveReservations[id];
-        if (r && r.until > now) out[id] = r;
+        if (r && (r.until > now || r.statut === 'Confirmée')) out[id] = r;
     });
     return out;
 }
@@ -148,6 +156,14 @@ function formatRemaining(ms) {
     return `${mins} min`;
 }
 
+/* Libellé + classe du badge : "En cours de réservation" (en attente de validation admin),
+   "Réservé" (confirmé par l'admin) ou "Disponible" */
+function reservationBadge(reservation, dispoFinal) {
+    if (reservation && reservation.statut !== 'Confirmée') return { label: 'En cours de réservation', cls: 'badge-reserve badge-pending' };
+    if (!dispoFinal) return { label: 'Réservé', cls: 'badge-reserve' };
+    return { label: 'Disponible', cls: '' };
+}
+
 function lienAchat(v) {
     const params = new URLSearchParams({
         car: v.nom, id: v.id, img: v.img, price: v.vente, an: v.an, km: v.km
@@ -160,27 +176,33 @@ function carteHTML(v, reservations, index) {
     const reservation = getReservation(reservations, v);
     const isReservedNow = !!reservation;
     const dispoFinal = v.dispo && !isReservedNow;
-    let badgeLabel = dispoFinal ? 'Disponible' : 'Réservé';
+    const badgeInfo = reservationBadge(reservation, dispoFinal);
+    let badgeLabel = badgeInfo.label;
     let badgeSub = '';
-    if (isReservedNow) {
+    
+    // Le compte à rebours s'affiche uniquement lorsque le statut devient Confirmée
+    if (reservation && reservation.statut === 'Confirmée') {
         const remaining = formatRemaining(reservation.until - Date.now());
-        badgeSub = `<span class="badge-timer">libère dans ${remaining}</span>`;
+        if (remaining) {
+            badgeSub = `<span class="badge-timer">libère dans ${remaining}</span>`;
+        }
     }
+
     return `
     <div class="card reveal vehicle-card" data-id="${v.id}" style="transition-delay:${(index % 6) * 60}ms">
         <div class="img-container">
-            <img src="${v.img}" alt="${v.nom}" loading="lazy">
-            <span class="badge ${dispoFinal ? '' : 'badge-reserve'}">${badgeLabel}</span>
+            <img src="${esc(v.img)}" alt="${esc(v.nom)}" loading="lazy">
+            <span class="badge ${badgeInfo.cls}">${badgeLabel}</span>
             ${badgeSub}
             <span class="card-shine"></span>
         </div>
         <div class="card-info">
-            <h3>${v.nom}</h3>
+            <h3>${esc(v.nom)}</h3>
             <div class="specs-row">
-                <span class="spec-chip">${v.an}</span>
-                <span class="spec-chip">${v.km} km</span>
-                <span class="spec-chip">${v.boite}</span>
-                <span class="spec-chip">${v.carburant}</span>
+                <span class="spec-chip">${esc(v.an)}</span>
+                <span class="spec-chip">${esc(v.km)} km</span>
+                <span class="spec-chip">${esc(v.boite)}</span>
+                <span class="spec-chip">${esc(v.carburant)}</span>
             </div>
             <div class="price-block">
                 <div class="price-line"><span class="price-label">Location</span><span class="price">${fmt(v.loc)} <span>/ jour</span></span></div>
@@ -235,6 +257,43 @@ function buildBrandChips() {
     });
 }
 
+
+/* ---------- Chargement des véhicules depuis la base de données ---------- */
+function normalizeVehicle(row) {
+    return {
+        id: slugify(row.nom),          // même identifiant que les réservations (car_id = slug du nom)
+        dbId: row.id,
+        nom: row.nom,
+        marque: row.marque || '',
+        img: row.img || '',
+        an: Number(row.an) || '',
+        km: row.km || '',
+        boite: row.boite || '',
+        carburant: row.carburant || '',
+        places: Number(row.places) || 5,
+        couleur: row.couleur || '',
+        loc: Number(row.loc) || 0,
+        vente: Number(row.vente) || 0,
+        dispo: row.dispo === true || row.dispo === 1 || row.dispo === '1',
+        description: row.description || '',
+        equipements: Array.isArray(row.equipements) ? row.equipements : []
+    };
+}
+async function loadVehicles() {
+    try {
+        const res = await fetch('api/vehicules.php?action=list', { cache: 'no-store' });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.message || 'Réponse invalide');
+        VEHICLES = data.vehicules.map(normalizeVehicle);
+    } catch (err) {
+        console.error('Chargement des véhicules impossible, liste de secours utilisée :', err);
+        VEHICLES = FALLBACK_VEHICLES;
+    }
+    if (activeBrand !== 'Tous' && !VEHICLES.some(v => v.marque === activeBrand)) activeBrand = 'Tous';
+    buildBrandChips();
+    renderFleet(currentFilteredList());
+}
+
 /* ---------- Modal détails véhicule ---------- */
 const modal = document.getElementById('vehicleModal');
 function openModal(id) {
@@ -247,28 +306,32 @@ function openModal(id) {
     document.getElementById('modalImg').src = v.img;
     document.getElementById('modalImg').alt = v.nom;
     document.getElementById('modalTitle').textContent = v.nom;
-    document.getElementById('modalBadge').textContent = dispoFinal ? 'Disponible' : 'Réservé';
-    document.getElementById('modalBadge').className = 'badge modal-badge' + (dispoFinal ? '' : ' badge-reserve');
+    const modalBadgeInfo = reservationBadge(reservation, dispoFinal);
+    document.getElementById('modalBadge').textContent = modalBadgeInfo.label;
+    document.getElementById('modalBadge').className = ('badge modal-badge ' + modalBadgeInfo.cls).trim();
     document.getElementById('modalDesc').textContent = v.description;
 
     document.getElementById('modalSpecs').innerHTML = `
-        <div class="modal-spec"><span>Année</span><strong>${v.an}</strong></div>
-        <div class="modal-spec"><span>Kilométrage</span><strong>${v.km} km</strong></div>
-        <div class="modal-spec"><span>Boîte</span><strong>${v.boite}</strong></div>
-        <div class="modal-spec"><span>Carburant</span><strong>${v.carburant}</strong></div>
-        <div class="modal-spec"><span>Places</span><strong>${v.places}</strong></div>
-        <div class="modal-spec"><span>Couleur</span><strong>${v.couleur}</strong></div>
+        <div class="modal-spec"><span>Année</span><strong>${esc(v.an)}</strong></div>
+        <div class="modal-spec"><span>Kilométrage</span><strong>${esc(v.km)} km</strong></div>
+        <div class="modal-spec"><span>Boîte</span><strong>${esc(v.boite)}</strong></div>
+        <div class="modal-spec"><span>Carburant</span><strong>${esc(v.carburant)}</strong></div>
+        <div class="modal-spec"><span>Places</span><strong>${esc(v.places)}</strong></div>
+        <div class="modal-spec"><span>Couleur</span><strong>${esc(v.couleur)}</strong></div>
     `;
-    document.getElementById('modalEquip').innerHTML = v.equipements.map(e => `<li>${e}</li>`).join('');
+    document.getElementById('modalEquip').innerHTML = v.equipements.map(e => `<li>${esc(e)}</li>`).join('');
     document.getElementById('modalPriceLoc').textContent = fmt(v.loc) + ' / jour';
     document.getElementById('modalPriceVente').textContent = fmt(v.vente);
     document.getElementById('modalReserveBtn').onclick = () => { closeModal(); openReservationModal(v.id); };
     document.getElementById('modalAchatBtn').href = lienAchat(v);
 
-    if (reservation) {
+    if (reservation && reservation.statut === 'Confirmée') {
         const remaining = formatRemaining(reservation.until - Date.now());
         document.getElementById('modalTimer').hidden = false;
-        document.getElementById('modalTimer').textContent = `⏱ Ce véhicule est actuellement réservé — disponible de nouveau dans ${remaining}.`;
+        document.getElementById('modalTimer').textContent = `⏱ Ce véhicule est réservé (expire dans ${remaining}).`;
+    } else if (reservation) {
+        document.getElementById('modalTimer').hidden = false;
+        document.getElementById('modalTimer').textContent = `Ce véhicule est actuellement en cours de réservation.`;
     } else {
         document.getElementById('modalTimer').hidden = true;
     }
@@ -321,8 +384,7 @@ function applyTiltEffect() {
    ============================================================ */
 const reservationModal = document.getElementById('reservationModal');
 let reservationCarId = null;
-// MODIFICATION : ajout de "identity: false" pour inclure la pièce d'identité dans la validation globale
-const resValidState = { name: false, phone: false, duration: false, identity: false };
+const resValidState = { name: false, phone: false, duration: false, idCard: false, identity: false, license: false, licenseFile: false };
 
 function openReservationModal(id) {
     const v = VEHICLES.find(x => x.id === id);
@@ -331,28 +393,34 @@ function openReservationModal(id) {
     // PROTECTION : Bloque l'ouverture si le véhicule est déjà réservé
     const reservations = activeReservations();
     if (getReservation(reservations, v)) {
-        alert("Désolé, ce véhicule est actuellement réservé et ne peut pas être sélectionné.");
+        alert("Désolé, ce véhicule est actuellement réservé ou en cours de réservation et ne peut pas être sélectionné.");
         return;
     }
 
     reservationCarId = id;
+    warmUpOcr(); // précharge le moteur de lecture des photos pendant que le client remplit le formulaire
 
     document.getElementById('resCarName').textContent = v.nom;
     document.getElementById('resCarPrice').textContent = fmt(v.loc) + ' / jour';
     document.getElementById('resCarImg').src = v.img;
 
     // Reset du formulaire
-    ['resName', 'resPhone', 'resIdentityDoc'].forEach(fid => {
+    ['resName', 'resPhone', 'idCard', 'resIdentityDoc', 'driverLicense', 'driverLicenseFile', 'paymentMethod'].forEach(fid => {
         const el = document.getElementById(fid);
+        if (!el) return;
         if (el.type === 'file') el.value = '';
         else el.value = '';
         el.classList.remove('valid', 'invalid');
     });
-    document.getElementById('resDuration').value = '';
-    ['resNameError', 'resPhoneError', 'resDurationError', 'resIdentityDocError'].forEach(eid => {
-        document.getElementById(eid).hidden = true;
+    const durationEl = document.getElementById('resDuration');
+    if (durationEl) durationEl.value = '';
+    
+    ['resNameError', 'resPhoneError', 'idCardError', 'resDurationError', 'resIdentityDocError', 'driverLicenseError', 'driverLicenseFileError', 'paymentMethodError'].forEach(eid => {
+        const errEl = document.getElementById(eid);
+        if (errEl) errEl.hidden = true;
     });
-    resValidState.name = false; resValidState.phone = false; resValidState.duration = false; resValidState.identity = false;
+    
+    Object.keys(resValidState).forEach(k => resValidState[k] = false);
     refreshResSubmitState();
 
     document.getElementById('resStepForm').hidden = false;
@@ -400,39 +468,284 @@ function validateResDuration() {
     resSetValid(el, errorEl); resValidState.duration = true;
 }
 
-// MODIFICATION : ajout de la fonction de validation pour la pièce d'identité
-function validateResIdentity() {
+function validateResIdCard() {
+    const el = document.getElementById('idCard');
+    const errorEl = document.getElementById('idCardError');
+    const value = el.value.trim();
+
+    if (value === "") {
+        el.classList.remove('invalid', 'valid');
+        errorEl.hidden = true;
+        resValidState.idCard = false;
+        return;
+    }
+    if (value.length < 5) {
+        resSetError(el, errorEl, "Numéro de pièce d'identité trop court ou invalide.");
+        resValidState.idCard = false;
+        return;
+    }
+    resSetValid(el, errorEl);
+    resValidState.idCard = true;
+}
+
+/* ============================================================
+   OCR (lecture des numéros sur les photos) — version améliorée
+   - image préparée avant lecture (agrandie, niveaux de gris, contraste)
+   - lecture de secours sur l'image d'origine si la 1re lecture ne correspond pas
+   - comparaison tolérante aux confusions de lecture : O/0, I/L/1, Z/2, S/5, G/6, B/8
+   - OCR_MAX_ERRORS caractères d'écart tolérés (numéros de 8 caractères ou plus)
+   - une seule lecture par photo (cache) + préchargement du moteur à l'ouverture du formulaire
+   ============================================================ */
+const OCR_MAX_ERRORS = 1; // 0 = comparaison stricte
+const ocrCache = new WeakMap();
+let ocrWorkerPromise = null;
+
+function getOcrWorker() {
+    if (!ocrWorkerPromise) {
+        if (typeof Tesseract === 'undefined') return Promise.reject(new Error('OCR_UNAVAILABLE'));
+        ocrWorkerPromise = Tesseract.createWorker('fra').catch(() => {
+            ocrWorkerPromise = null;
+            throw new Error('OCR_UNAVAILABLE');
+        });
+    }
+    return ocrWorkerPromise;
+}
+// Télécharge le moteur de lecture dès l'ouverture du formulaire (pendant que le client remplit les champs)
+function warmUpOcr() { getOcrWorker().catch(() => {}); }
+
+function ocrErrorMessage(err) {
+    return (err && err.message === 'OCR_UNAVAILABLE')
+        ? "Vérification automatique indisponible : vérifiez votre connexion internet puis réessayez."
+        : "Impossible de lire l'image. Veuillez choisir une photo plus nette.";
+}
+function isImageFile(file) { return !file.type || file.type.startsWith('image/'); }
+
+async function prepareImageForOcr(file) {
+    try {
+        const bmp = await createImageBitmap(file);
+        const scale = Math.min(3, Math.max(0.3, 2000 / Math.max(bmp.width, bmp.height)));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(bmp.width * scale);
+        canvas.height = Math.round(bmp.height * scale);
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height);
+        const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const d = img.data;
+        for (let i = 0; i < d.length; i += 4) {
+            const gray = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+            const v = Math.max(0, Math.min(255, (gray - 128) * 1.5 + 128));
+            d[i] = d[i + 1] = d[i + 2] = v;
+        }
+        ctx.putImageData(img, 0, 0);
+        return canvas;
+    } catch (e) {
+        return file; // navigateur trop ancien : on lit l'image d'origine
+    }
+}
+
+// pass 0 = image améliorée, pass 1 = image d'origine (résultat mis en cache pour chaque photo)
+function ocrTextPass(file, pass) {
+    let entry = ocrCache.get(file);
+    if (!entry) { entry = {}; ocrCache.set(file, entry); }
+    if (!entry[pass]) {
+        entry[pass] = (async () => {
+            const worker = await getOcrWorker();
+            const source = pass === 0 ? await prepareImageForOcr(file) : file;
+            const { data: { text } } = await worker.recognize(source);
+            return text;
+        })().catch(err => { delete entry[pass]; throw err; });
+    }
+    return entry[pass];
+}
+
+function normalizeOcr(str) {
+    return String(str || '').toUpperCase()
+        .replace(/[|!]/g, '1')
+        .replace(/[^A-Z0-9]/g, '')
+        .replace(/[OQ]/g, '0').replace(/[IL]/g, '1')
+        .replace(/Z/g, '2').replace(/S/g, '5').replace(/G/g, '6').replace(/B/g, '8');
+}
+
+// Le numéro est-il présent dans le texte lu (avec au plus maxErrors erreurs de lecture) ?
+function fuzzyContains(text, number, maxErrors) {
+    const T = normalizeOcr(text);
+    const P = normalizeOcr(number);
+    if (!P) return false;
+    if (T.includes(P)) return true;
+    if (P.length < 8 || !maxErrors) return false; // numéros courts : comparaison stricte
+    let prev = [];
+    for (let i = 0; i <= P.length; i++) prev[i] = i;
+    for (let j = 1; j <= T.length; j++) {
+        const cur = [0];
+        for (let i = 1; i <= P.length; i++) {
+            cur[i] = Math.min(prev[i] + 1, cur[i - 1] + 1, prev[i - 1] + (P[i - 1] === T[j - 1] ? 0 : 1));
+        }
+        if (cur[P.length] <= maxErrors) return true;
+        prev = cur;
+    }
+    return false;
+}
+
+async function ocrMatchesNumber(file, number) {
+    const first = await ocrTextPass(file, 0);
+    if (fuzzyContains(first, number, OCR_MAX_ERRORS)) return true;
+    try {
+        const second = await ocrTextPass(file, 1);
+        return fuzzyContains(second, number, OCR_MAX_ERRORS);
+    } catch (e) {
+        return false;
+    }
+}
+
+/* ---------- VALIDATION DE LA PHOTO DE LA CNI AVEC TESSERACT.JS ---------- */
+async function validateResIdentity() {
     const el = document.getElementById('resIdentityDoc');
     const errorEl = document.getElementById('resIdentityDocError');
-    if (!el.files || el.files.length === 0) {
-        el.classList.add('invalid');
-        el.classList.remove('valid');
-        if (errorEl) {
-            errorEl.textContent = "Veuillez joindre votre pièce d'identité.";
-            errorEl.hidden = false;
-        }
+    const textEl = document.getElementById('idCard');
+
+    if (el.files.length === 0) {
+        el.classList.remove('invalid', 'valid');
+        errorEl.hidden = true;
         resValidState.identity = false;
-    } else {
-        el.classList.remove('invalid');
-        el.classList.add('valid');
-        if (errorEl) errorEl.hidden = true;
-        resValidState.identity = true;
+        refreshResSubmitState();
+        return;
     }
+
+    if (textEl.value.trim() === "") {
+        resSetError(el, errorEl, "Veuillez d'abord saisir le numéro de CNI textuel.");
+        resValidState.identity = false;
+        refreshResSubmitState();
+        return;
+    }
+
+    if (!isImageFile(el.files[0])) {
+        resSetError(el, errorEl, "Format non pris en charge : envoyez une photo (JPG ou PNG), pas un PDF.");
+        resValidState.identity = false;
+        refreshResSubmitState();
+        return;
+    }
+
+    // Affichage d'un message d'attente pendant l'analyse OCR
+    errorEl.hidden = false;
+    errorEl.textContent = "Analyse automatique de la photo en cours...";
+    el.classList.remove('valid', 'invalid');
+
+    try {
+        // Lancement de Tesseract en arrière-plan sur l'image sélectionnée
+        const file = el.files[0];
+        // Vérification si le numéro saisi correspond au texte détecté sur l'image (lecture tolérante)
+        const matches = await ocrMatchesNumber(file, textEl.value);
+        if (matches) {
+            resSetValid(el, errorEl);
+            resValidState.identity = true;
+        } else {
+            resSetError(el, errorEl, "Le numéro sur la photo ne correspond pas au numéro de CNI saisi !");
+            resValidState.identity = false;
+        }
+    } catch (err) {
+        console.error("Erreur OCR :", err);
+        resSetError(el, errorEl, ocrErrorMessage(err));
+        resValidState.identity = false;
+    }
+
+    refreshResSubmitState();
+}
+
+/* ---------- VALIDATION DU PERMIS DE CONDUIRE (numéro + photo lue avec Tesseract.js) ---------- */
+function validateResLicense() {
+    const el = document.getElementById('driverLicense');
+    const errorEl = document.getElementById('driverLicenseError');
+    const value = el.value.trim();
+
+    if (value === "") {
+        el.classList.remove('invalid', 'valid');
+        errorEl.hidden = true;
+        resValidState.license = false;
+        return;
+    }
+    if (value.length < 5) {
+        resSetError(el, errorEl, "Numéro de permis de conduire trop court ou invalide.");
+        resValidState.license = false;
+        return;
+    }
+    resSetValid(el, errorEl);
+    resValidState.license = true;
+}
+
+let licenseFileCheckId = 0;
+async function validateResLicenseFile() {
+    const el = document.getElementById('driverLicenseFile');
+    const errorEl = document.getElementById('driverLicenseFileError');
+    const textEl = document.getElementById('driverLicense');
+    const myCheck = ++licenseFileCheckId;
+
+    if (el.files.length === 0) {
+        el.classList.remove('invalid', 'valid');
+        errorEl.hidden = true;
+        resValidState.licenseFile = false;
+        refreshResSubmitState();
+        return;
+    }
+
+    if (textEl.value.trim() === "") {
+        resSetError(el, errorEl, "Veuillez d'abord saisir le numéro de permis de conduire.");
+        resValidState.licenseFile = false;
+        refreshResSubmitState();
+        return;
+    }
+
+    if (!isImageFile(el.files[0])) {
+        resSetError(el, errorEl, "Format non pris en charge : envoyez une photo (JPG ou PNG), pas un PDF.");
+        resValidState.licenseFile = false;
+        refreshResSubmitState();
+        return;
+    }
+
+    // Message d'attente pendant l'analyse OCR (le bouton reste bloqué)
+    errorEl.hidden = false;
+    errorEl.textContent = "Analyse automatique de la photo du permis en cours...";
+    el.classList.remove('valid', 'invalid');
+    resValidState.licenseFile = false;
+    refreshResSubmitState();
+
+    try {
+        const matches = await ocrMatchesNumber(el.files[0], textEl.value);
+        if (myCheck !== licenseFileCheckId) return; // résultat périmé (nouvelle saisie entre-temps)
+
+        if (matches) {
+            resSetValid(el, errorEl);
+            resValidState.licenseFile = true;
+        } else {
+            resSetError(el, errorEl, "Le numéro sur la photo du permis ne correspond pas au numéro saisi !");
+            resValidState.licenseFile = false;
+        }
+    } catch (err) {
+        if (myCheck !== licenseFileCheckId) return;
+        console.error("Erreur OCR permis :", err);
+        resSetError(el, errorEl, ocrErrorMessage(err));
+        resValidState.licenseFile = false;
+    }
+
+    refreshResSubmitState();
 }
 
 function refreshResSubmitState() {
     const allValid = Object.values(resValidState).every(Boolean);
     const btn = document.getElementById('resSubmitBtn');
-    btn.disabled = !allValid;
-    btn.classList.toggle('btn-ready', allValid);
+    if (btn) {
+        btn.disabled = !allValid;
+        btn.classList.toggle('btn-ready', allValid);
+    }
 }
 
 function handleReservationSubmit(e) {
     e.preventDefault();
     validateResName(); 
     validateResPhone(); 
-    validateResDuration(); 
-    validateResIdentity(); // MODIFICATION : intégration de l'appel de validation de l'identité
+    validateResDuration();
+    validateResIdCard();
+    validateResIdentity();
+    validateResLicense();
     refreshResSubmitState();
     
     if (!Object.values(resValidState).every(Boolean)) {
@@ -460,7 +773,7 @@ function handleReservationSubmit(e) {
     formData.append('car_name', v.nom);
     formData.append('until_ts', untilTs);
     formData.append('duree_label', durationLabel);
-    formData.append('duration_hours', durationHours); // AJOUT : le serveur calcule lui-même l'heure de fin (horloge du serveur)
+    formData.append('duration_hours', durationHours);
 
     // Envoi des données en arrière-plan vers api/booking.php
     fetch('api/booking.php', {
@@ -471,9 +784,8 @@ function handleReservationSubmit(e) {
     .then(data => {
         if (!data.success) {
             console.warn("Avertissement enregistrement BDD :", data.message);
-            alert("Votre réservation n'a pas pu être enregistrée : " + data.message); // AJOUT : prévient le client si le serveur refuse
+            alert("Votre réservation n'a pas pu être enregistrée : " + data.message);
         }
-        // AJOUT : rafraîchit tout de suite l'affichage ("Réservé") sans attendre les 15 s
         if (window.ReservationStore && ReservationStore.refresh) ReservationStore.refresh();
     })
     .catch(err => {
@@ -489,7 +801,7 @@ function handleReservationSubmit(e) {
     window.open(`https://wa.me/${PHONE_NUMBER}?text=${encodeURIComponent(texte)}`, '_blank');
 
     document.getElementById('resConfirmText').textContent =
-        `Votre réservation pour la ${v.nom} est enregistrée pour ${durationLabel}. Le véhicule est maintenant affiché "Réservé" sur le site.`;
+        `Votre demande de réservation pour la ${v.nom} est enregistrée pour ${durationLabel}. Le véhicule est maintenant affiché "En cours de réservation" sur le site. Un conseiller vous contacte sur WhatsApp pour confirmer.`;
     document.getElementById('resBuyYesBtn').href = lienAchat(v);
     document.getElementById('resStepForm').hidden = true;
     document.getElementById('resStepConfirm').hidden = false;
@@ -505,6 +817,8 @@ setInterval(() => {
 /* ---------- Init ---------- */
 document.addEventListener('DOMContentLoaded', () => {
     buildBrandChips();
+    loadVehicles();                       
+    setInterval(loadVehicles, 30000);     
 
     ReservationStore.subscribe(res => {
         liveReservations = res || {};
@@ -513,11 +827,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     /* ---------- Rafraîchissement automatique de l'interface des cartes ---------- */
     ReservationStore.subscribe(function() {
-        // MODIFICATION : liste filtrée (non expirée) + getReservation() pour gérer les ids venant de l'admin
         const actives = activeReservations();
-        // Parcourt tous les véhicules définis dans votre tableau VEHICLES
         VEHICLES.forEach(car => {
-            // Sélectionne la carte correspondante grâce à son attribut data-id
             const card = document.querySelector(`.vehicle-card[data-id="${car.id}"]`);
             if (!card) return;
 
@@ -526,14 +837,11 @@ document.addEventListener('DOMContentLoaded', () => {
             const isReservedNow = !!reservation;
             const dispoFinal = car.dispo && !isReservedNow;
 
-            // Met à jour dynamiquement le texte et le style du badge sans recharger la page
             if (badge) {
-                badge.textContent = dispoFinal ? 'Disponible' : 'Réservé';
-                if (dispoFinal) {
-                    badge.classList.remove('badge-reserve');
-                } else {
-                    badge.classList.add('badge-reserve');
-                }
+                const info = reservationBadge(reservation, dispoFinal);
+                badge.textContent = info.label;
+                badge.classList.remove('badge-reserve', 'badge-pending');
+                info.cls.split(' ').filter(Boolean).forEach(c => badge.classList.add(c));
             }
         });
     });
@@ -545,15 +853,35 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('resModalClose').addEventListener('click', closeReservationModal);
     document.getElementById('resModalOverlay').addEventListener('click', closeReservationModal);
     document.getElementById('reservationForm').addEventListener('submit', handleReservationSubmit);
+    
     document.getElementById('resName').addEventListener('input', () => { validateResName(); refreshResSubmitState(); });
     document.getElementById('resPhone').addEventListener('input', () => { validateResPhone(); refreshResSubmitState(); });
     document.getElementById('resDuration').addEventListener('change', () => { validateResDuration(); refreshResSubmitState(); });
     
-    // Validation du champ fichier pièce d'identité
+    const idCardInput = document.getElementById('idCard');
+    if (idCardInput) {
+        idCardInput.addEventListener('input', () => { validateResIdCard(); validateResIdentity(); refreshResSubmitState(); });
+        idCardInput.addEventListener('blur', () => { validateResIdCard(); validateResIdentity(); refreshResSubmitState(); });
+    }
+
     const identityInput = document.getElementById('resIdentityDoc');
     if (identityInput) {
         identityInput.addEventListener('change', () => {
             validateResIdentity();
+            refreshResSubmitState();
+        });
+    }
+
+    const licenseInput = document.getElementById('driverLicense');
+    if (licenseInput) {
+        licenseInput.addEventListener('input', () => { validateResLicense(); validateResLicenseFile(); refreshResSubmitState(); });
+        licenseInput.addEventListener('blur', () => { validateResLicense(); validateResLicenseFile(); refreshResSubmitState(); });
+    }
+
+    const licenseFileInput = document.getElementById('driverLicenseFile');
+    if (licenseFileInput) {
+        licenseFileInput.addEventListener('change', () => {
+            validateResLicenseFile();
             refreshResSubmitState();
         });
     }

@@ -25,6 +25,19 @@ $action = $_GET['action'] ?? $_POST['action'] ?? '';
 // --- 1. LISTER LES VÉHICULES ---
 if ($action === 'list') {
     try {
+        // Libère les véhicules dont la réservation est expirée (sinon dispo reste à 0 pour toujours)
+        try {
+            $nowMs = (int) round(microtime(true) * 1000);
+            $expired = $pdo->prepare("SELECT car_id, car_name FROM reservations WHERE en_cours = 1 AND until_ts <= ?");
+            $expired->execute([$nowMs]);
+            foreach ($expired->fetchAll() as $r) {
+                $pdo->prepare("UPDATE vehicles SET dispo = 1 WHERE LOWER(REPLACE(nom, ' ', '-')) = ? OR nom = ?")
+                    ->execute([$r['car_id'], $r['car_name']]);
+            }
+            $pdo->prepare("UPDATE reservations SET en_cours = 0, statut = 'Terminée' WHERE en_cours = 1 AND until_ts <= ?")
+                ->execute([$nowMs]);
+        } catch (Exception $e) { /* table reservations absente : on ignore */ }
+
         $stmt = $pdo->query("SELECT * FROM vehicles ORDER BY id DESC");
         $vehicules = $stmt->fetchAll();
 

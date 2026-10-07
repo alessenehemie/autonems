@@ -5,9 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AutoNems - Acheter ce Véhicule</title>
     <link rel="stylesheet" href="style.css">
+    <!-- AJOUT : Intégration de la bibliothèque Tesseract.js pour l'OCR -->
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 </head>
 <body>
-
 
     <div id="loaderModal" class="loader-overlay" style="display: none;">
         <div class="loader-content">
@@ -30,7 +31,6 @@
         <button type="button" class="btn-submit btn-ready" id="openAchatBtn">Acheter ce véhicule ➔</button>
         <p class="disclaimer">Aucun paiement n'est effectué sur ce site. Un conseiller confirme tous les détails avec vous sur WhatsApp.</p>
     </div>
-
     
     <div class="vehicle-modal" id="achatModal">
         <div class="modal-overlay" id="achatModalOverlay"></div>
@@ -53,6 +53,38 @@
                         <input type="tel" id="userPhone" placeholder="Ex: 07 69 58 34 94" autocomplete="off" required>
                         <p class="field-hint">Numéro ivoirien à 10 chiffres (ex : 07 69 58 34 94).</p>
                         <p class="field-error" id="userPhoneError" hidden></p>
+                    </div>
+
+                    <!-- Numéro de Pièce d'Identité / CNI -->
+                    <div class="form-group">
+                        <label for="idCard">Numéro de Pièce d'Identité / CNI :</label>
+                        <input type="text" id="idCard" placeholder="Ex: C0012345678" autocomplete="off" required>
+                        <p class="field-hint">Entrez votre numéro de CNI ou attestation valide.</p>
+                        <p class="field-error" id="idCardError" hidden></p>
+                    </div>
+
+                    <!-- Photo de la CNI -->
+                    <div class="form-group">
+                        <label for="idCardFile">Photo de la Pièce d'Identité / CNI :</label>
+                        <input type="file" id="idCardFile" accept="image/*" required>
+                        <p class="field-hint">Téléchargez une photo claire de votre CNI.</p>
+                        <p class="field-error" id="idCardFileError" hidden></p>
+                    </div>
+
+                    <!-- Numéro de Permis de Conduire -->
+                    <div class="form-group">
+                        <label for="driverLicense">Numéro de Permis de Conduire :</label>
+                        <input type="text" id="driverLicense" placeholder="Ex: 12345678AB" autocomplete="off" required>
+                        <p class="field-hint">Requis pour l'acquisition et la vérification du profil.</p>
+                        <p class="field-error" id="driverLicenseError" hidden></p>
+                    </div>
+
+                    <!-- Photo du Permis de Conduire -->
+                    <div class="form-group">
+                        <label for="driverLicenseFile">Photo du Permis de Conduire :</label>
+                        <input type="file" id="driverLicenseFile" accept="image/*" required>
+                        <p class="field-hint">Téléchargez une photo claire de votre permis.</p>
+                        <p class="field-error" id="driverLicenseFileError" hidden></p>
                     </div>
 
                     <div class="form-group">

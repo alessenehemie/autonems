@@ -33,7 +33,7 @@ const ReservationStore = (function () {
         for (const carId in (data || {})) {
             const item = data[carId];
             const end = Number(item && (item.until || item.expiresAt || 0));
-            if (end && end <= now) continue; // expirée -> on l'ignore
+            if (end && end <= now && !(item && item.statut === 'Confirmée')) continue; // expirée -> on l'ignore (sauf "Réservé" confirmé par l'admin)
             cleaned[carId] = item;
         }
         lastKnown = cleaned;
@@ -42,7 +42,7 @@ const ReservationStore = (function () {
     }
 
     function fetchReservations() {
-        return fetch(API_BASE + 'get_reservations.php', { cache: 'no-store' })
+        return fetch(API_BASE + 'booking.php?action=public_list', { cache: 'no-store' })
             .then(res => {
                 if (!res.ok) throw new Error('HTTP ' + res.status);
                 return res.json();

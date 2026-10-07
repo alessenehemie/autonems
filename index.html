@@ -142,19 +142,19 @@
                 <form id="reservationForm" enctype="multipart/form-data" novalidate>
                     <div class="form-group">
                         <label for="resName">Nom et Prénoms :</label>
-                        <input type="text" id="resName" placeholder="Ex: Kouassi Jean" autocomplete="off" required>
+                        <input type="text" id="resName" name="client_nom" placeholder="Ex: Kouassi Jean" autocomplete="off" required>
                         <p class="field-hint">Lettres uniquement (nom et prénom), sans chiffres ni symboles.</p>
                         <p class="field-error" id="resNameError" hidden></p>
                     </div>
                     <div class="form-group">
                         <label for="resPhone">Votre Numéro de Téléphone :</label>
-                        <input type="tel" id="resPhone" placeholder="Ex: 07 69 58 34 94" autocomplete="off" required>
+                        <input type="tel" id="resPhone" name="client_telephone" placeholder="Ex: 07 69 58 34 94" autocomplete="off" required>
                         <p class="field-hint">Numéro ivoirien à 10 chiffres (ex : 07 69 58 34 94).</p>
                         <p class="field-error" id="resPhoneError" hidden></p>
                     </div>
                     <div class="form-group">
                         <label for="resDuration">Durée de réservation souhaitée :</label>
-                        <select id="resDuration" required>
+                        <select id="resDuration" name="duree" required>
                             <option value="">-- Choisissez une durée --</option>
                             <option value="2">2 heures</option>
                             <option value="6">6 heures</option>
@@ -166,12 +166,51 @@
                         <p class="field-hint">Le véhicule s'affichera "Réservé" sur le site pendant cette durée, puis redeviendra automatiquement disponible.</p>
                         <p class="field-error" id="resDurationError" hidden></p>
                     </div>
+
+                    <!-- AJOUT : Numéro de Pièce d'Identité / CNI -->
                     <div class="form-group">
-                        <label for="resIdentityDoc">Pièce d'identité (CNI, Passeport ou Permis) :</label>
+                        <label for="idCard">Numéro de Pièce d'Identité / CNI :</label>
+                        <input type="text" id="idCard" name="id_card_number" placeholder="Ex: C0012345678" autocomplete="off" required>
+                        <p class="field-hint">Entrez votre numéro de CNI ou attestation valide.</p>
+                        <p class="field-error" id="idCardError" hidden></p>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="resIdentityDoc">Photo de la Pièce d'Identité (CNI, Passeport ou Permis) :</label>
                         <input type="file" id="resIdentityDoc" name="identity_doc" accept=".jpg, .jpeg, .png, .pdf" required>
                         <p class="field-hint">Format accepté : JPG, PNG ou PDF.</p>
                         <p class="field-error" id="resIdentityDocError" hidden></p>
                     </div>
+
+                    <!-- AJOUT : Numéro de Permis de Conduire -->
+                    <div class="form-group">
+                        <label for="driverLicense">Numéro de Permis de Conduire :</label>
+                        <input type="text" id="driverLicense" name="driver_license" placeholder="Ex: 12345678AB" autocomplete="off" required>
+                        <p class="field-hint">Requis pour la location et la vérification du profil.</p>
+                        <p class="field-error" id="driverLicenseError" hidden></p>
+                    </div>
+
+                    <!-- AJOUT : Photo du Permis de Conduire -->
+                    <div class="form-group">
+                        <label for="driverLicenseFile">Photo du Permis de Conduire :</label>
+                        <input type="file" id="driverLicenseFile" name="driver_license_file" accept="image/*" required>
+                        <p class="field-hint">Téléchargez une photo claire de votre permis.</p>
+                        <p class="field-error" id="driverLicenseFileError" hidden></p>
+                    </div>
+
+                    <!-- AJOUT : Mode de paiement souhaité -->
+                    <div class="form-group">
+                        <label for="paymentMethod">Mode de paiement souhaité :</label>
+                        <select id="paymentMethod" name="payment_method" required>
+                            <option value="">-- Choisissez une option --</option>
+                            <option value="Mobile Money (Wave / Orange)">Mobile Money (Wave / Orange)</option>
+                            <option value="Virement Bancaire">Virement Bancaire</option>
+                            <option value="Paiement échelonné">Paiement échelonné</option>
+                            <option value="Paiement en Agence / Comptant">Paiement en Agence / Comptant</option>
+                        </select>
+                        <p class="field-error" id="paymentMethodError" hidden></p>
+                    </div>
+
                     <button type="submit" class="btn-submit" id="resSubmitBtn">Confirmer la réservation ➔</button>
                     <p class="disclaimer">Un conseiller confirme votre réservation avec vous sur WhatsApp.</p>
                 </form>
@@ -189,10 +228,12 @@
             </div>
         </div>
     </div>
-
+    <!-- AJOUT : Inclusion de Tesseract.js pour la reconnaissance optique de caractères (OCR) -->
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+     <script src="script.js"></script>
     <script src="reservations.js"></script>
     <script src="validation.js"></script>
-    <script src="script.js"></script>
+    
     <script>document.getElementById('year').textContent = new Date().getFullYear();</script>
 </body>
 </html>
