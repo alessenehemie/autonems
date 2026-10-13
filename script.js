@@ -124,7 +124,7 @@ function activeReservations() {
     const out = {};
     Object.keys(liveReservations || {}).forEach(id => {
         const r = liveReservations[id];
-        if (r && (r.until > now || r.statut === 'Confirmée')) out[id] = r;
+        if (r && r.until > now) out[id] = r; // expirée => le véhicule redevient réservable automatiquement
     });
     return out;
 }
@@ -209,8 +209,11 @@ function carteHTML(v, reservations, index) {
                 <div class="price-line"><span class="price-label">Vente</span><span class="price">${fmt(v.vente)}</span></div>
             </div>
             <div class="card-actions">
-                <button type="button" class="btn-full btn-reserve" data-id="${v.id}" onclick="event.stopPropagation()">Réserver</button>
-                <a href="${lienAchat(v)}" class="btn-full btn-acheter-card" onclick="event.stopPropagation()">Acheter</a>
+                ${isReservedNow
+                    ? `<button type="button" class="btn-full btn-reserve is-locked" disabled aria-disabled="true" title="Véhicule indisponible pendant la réservation" onclick="event.stopPropagation()">Réserver</button>
+                       <span class="btn-full btn-acheter-card is-locked" role="link" aria-disabled="true" title="Véhicule indisponible pendant la réservation" onclick="event.stopPropagation()">Acheter</span>`
+                    : `<button type="button" class="btn-full btn-reserve" data-id="${v.id}" onclick="event.stopPropagation()">Réserver</button>
+                       <a href="${lienAchat(v)}" class="btn-full btn-acheter-card" onclick="event.stopPropagation()">Acheter</a>`}
             </div>
             <button class="btn-details" data-id="${v.id}">Voir les détails ↗</button>
         </div>
@@ -322,8 +325,22 @@ function openModal(id) {
     document.getElementById('modalEquip').innerHTML = v.equipements.map(e => `<li>${esc(e)}</li>`).join('');
     document.getElementById('modalPriceLoc').textContent = fmt(v.loc) + ' / jour';
     document.getElementById('modalPriceVente').textContent = fmt(v.vente);
-    document.getElementById('modalReserveBtn').onclick = () => { closeModal(); openReservationModal(v.id); };
-    document.getElementById('modalAchatBtn').href = lienAchat(v);
+    const modalReserveBtn = document.getElementById('modalReserveBtn');
+    const modalAchatBtn = document.getElementById('modalAchatBtn');
+    const locked = !!reservation;
+    modalReserveBtn.disabled = locked;
+    modalReserveBtn.classList.toggle('is-locked', locked);
+    modalAchatBtn.classList.toggle('is-locked', locked);
+    modalAchatBtn.setAttribute('aria-disabled', String(locked));
+    if (locked) {
+        modalReserveBtn.onclick = null;
+        modalAchatBtn.removeAttribute('href');
+        modalAchatBtn.onclick = (e) => e.preventDefault();
+    } else {
+        modalReserveBtn.onclick = () => { closeModal(); openReservationModal(v.id); };
+        modalAchatBtn.href = lienAchat(v);
+        modalAchatBtn.onclick = null;
+    }
 
     if (reservation && reservation.statut === 'Confirmée') {
         const remaining = formatRemaining(reservation.until - Date.now());
@@ -493,10 +510,10 @@ function validateResIdCard() {
    - image préparée avant lecture (agrandie, niveaux de gris, contraste)
    - lecture de secours sur l'image d'origine si la 1re lecture ne correspond pas
    - comparaison tolérante aux confusions de lecture : O/0, I/L/1, Z/2, S/5, G/6, B/8
-   - OCR_MAX_ERRORS caractères d'écart tolérés (numéros de 8 caractères ou plus)
+   - comparaison stricte : le numéro doit apparaître en entier et à l'identique (OCR_MAX_ERRORS = 0)
    - une seule lecture par photo (cache) + préchargement du moteur à l'ouverture du formulaire
    ============================================================ */
-const OCR_MAX_ERRORS = 1; // 0 = comparaison stricte
+const OCR_MAX_ERRORS = 0; // 0 = numéro IDENTIQUE exigé sur la photo (mettre 1 pour tolérer une erreur de lecture)
 const ocrCache = new WeakMap();
 let ocrWorkerPromise = null;
 
@@ -566,35 +583,164 @@ function normalizeOcr(str) {
         .replace(/Z/g, '2').replace(/S/g, '5').replace(/G/g, '6').replace(/B/g, '8');
 }
 
-// Le numéro est-il présent dans le texte lu (avec au plus maxErrors erreurs de lecture) ?
-function fuzzyContains(text, number, maxErrors) {
-    const T = normalizeOcr(text);
+// Découpe le texte lu en "mots" (lettres/chiffres), chacun normalisé
+function ocrTokens(text) {
+    return String(text || '').toUpperCase().replace(/[|!]/g, '1')
+        .split(/[^A-Z0-9]+/).filter(Boolean).map(normalizeOcr);
+}
+
+// Distance de Levenshtein (nombre de caractères différents entre deux textes)
+function editDistance(a, b, max) {
+    if (Math.abs(a.length - b.length) > max) return max + 1;
+    let prev = [];
+    for (let j = 0; j <= b.length; j++) prev[j] = j;
+    for (let i = 1; i <= a.length; i++) {
+        const cur = [i];
+        for (let j = 1; j <= b.length; j++) {
+            cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+        }
+        prev = cur;
+    }
+    return prev[b.length];
+}
+
+// Le numéro saisi apparaît-il sur la photo comme un numéro COMPLET et identique ?
+// - il doit former un bloc entier (un numéro plus long qui le contient ne compte pas)
+// - il peut être imprimé en plusieurs groupes ("C 0012 3456 78")
+// - maxErrors = nombre de caractères mal lus tolérés (0 = identique exigé)
+function containsNumberStrict(text, number, maxErrors) {
     const P = normalizeOcr(number);
     if (!P) return false;
-    if (T.includes(P)) return true;
-    if (P.length < 8 || !maxErrors) return false; // numéros courts : comparaison stricte
-    let prev = [];
-    for (let i = 0; i <= P.length; i++) prev[i] = i;
-    for (let j = 1; j <= T.length; j++) {
-        const cur = [0];
-        for (let i = 1; i <= P.length; i++) {
-            cur[i] = Math.min(prev[i] + 1, cur[i - 1] + 1, prev[i - 1] + (P[i - 1] === T[j - 1] ? 0 : 1));
+    const tokens = ocrTokens(text);
+    for (let i = 0; i < tokens.length; i++) {
+        let joined = '';
+        for (let k = i; k < tokens.length && k < i + 6; k++) {
+            joined += tokens[k];
+            if (joined.length > P.length + maxErrors) break;
+            if (joined === P) return true;
+            if (maxErrors > 0 && P.length >= 8 && editDistance(joined, P, maxErrors) <= maxErrors) return true;
         }
-        if (cur[P.length] <= maxErrors) return true;
-        prev = cur;
     }
     return false;
 }
 
 async function ocrMatchesNumber(file, number) {
     const first = await ocrTextPass(file, 0);
-    if (fuzzyContains(first, number, OCR_MAX_ERRORS)) return true;
+    if (containsNumberStrict(first, number, OCR_MAX_ERRORS)) return true;
     try {
         const second = await ocrTextPass(file, 1);
-        return fuzzyContains(second, number, OCR_MAX_ERRORS);
+        return containsNumberStrict(second, number, OCR_MAX_ERRORS);
     } catch (e) {
         return false;
     }
+}
+
+/* ============================================================
+   VÉRIFICATION DU NOM ET PRÉNOMS SUR LES PHOTOS (CNI et permis)
+   Chaque mot du nom saisi doit se retrouver sur la photo du document.
+   ============================================================ */
+const OCR_NAME_MAX_ERRORS = 0; // 0 = chaque mot du nom doit être lu à l'identique (1 = une lettre mal lue tolérée pour les mots de 7 lettres ou plus)
+
+// Mots imprimés sur les documents : ils ne peuvent pas servir de "nom"
+const OCR_DOC_WORDS = ['REPUBLIQUE', 'COTE', 'IVOIRE', 'CARTE', 'NATIONALE', 'IDENTITE', 'PERMIS', 'CONDUIRE',
+    'NOM', 'PRENOM', 'PRENOMS', 'NAISSANCE', 'DATE', 'LIEU', 'SEXE', 'TAILLE', 'SIGNATURE', 'VALABLE', 'EXPIRE',
+    'CATEGORIE', 'DELIVRE', 'DELIVRANCE', 'NATIONALITE', 'PROFESSION', 'DOMICILE', 'ADRESSE', 'NUMERO',
+    'TITULAIRE', 'MINISTERE', 'TRANSPORT', 'SECURITE', 'ROUTIERE'];
+
+// Lettres seules, sans accents ni ponctuation, en majuscules
+function nameClean(str) {
+    return String(str || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+// Confusions de lecture courantes (chiffres lus à la place de lettres, I/L)
+function canonName(w) {
+    return w.replace(/0/g, 'O').replace(/1/g, 'I').replace(/2/g, 'Z').replace(/5/g, 'S')
+            .replace(/6/g, 'G').replace(/8/g, 'B').replace(/Q/g, 'O').replace(/L/g, 'I');
+}
+// Mots du nom saisi (les initiales d'une seule lettre sont ignorées)
+function nameWords(fullName) {
+    return String(fullName || '').split(/\s+/).map(w => canonName(nameClean(w))).filter(w => w.length >= 2);
+}
+// Mots lus sur la photo
+function nameTokens(text) {
+    return String(text || '').split(/[\s:;,.|_\/\\()]+/).map(w => canonName(nameClean(w))).filter(Boolean);
+}
+function nameWordInTokens(word, tokens, maxErrors) {
+    for (let i = 0; i < tokens.length; i++) {
+        let joined = '';
+        for (let k = i; k < tokens.length && k < i + 3; k++) { // un nom composé peut être imprimé en 2 ou 3 mots
+            joined += tokens[k];
+            if (joined.length > word.length + maxErrors) break;
+            if (joined === word) return true;
+            if (maxErrors > 0 && word.length >= 7 && editDistance(joined, word, maxErrors) <= maxErrors) return true;
+        }
+    }
+    return false;
+}
+function containsAllNameWords(text, fullName, maxErrors) {
+    const words = nameWords(fullName);
+    if (words.length === 0) return false;
+    const docWords = OCR_DOC_WORDS.map(canonName);
+    if (words.some(w => docWords.includes(w))) return false; // "République", "Permis"... ne sont pas des noms
+    const tokens = nameTokens(text);
+    return words.every(w => nameWordInTokens(w, tokens, maxErrors));
+}
+async function ocrMatchesName(file, fullName) {
+    const first = await ocrTextPass(file, 0);
+    if (containsAllNameWords(first, fullName, OCR_NAME_MAX_ERRORS)) return true;
+    try {
+        const second = await ocrTextPass(file, 1);
+        return containsAllNameWords(second, fullName, OCR_NAME_MAX_ERRORS);
+    } catch (e) {
+        return false;
+    }
+}
+
+// Le numéro de l'AUTRE document apparaît-il sur cette photo ? (1re lecture seulement, comparaison exacte)
+async function ocrFirstPassContains(file, number) {
+    if (!normalizeOcr(number)) return false;
+    try { return containsNumberStrict(await ocrTextPass(file, 0), number, 0); } catch (e) { return false; }
+}
+
+// Empreinte d'une photo (SHA-256 du contenu) pour détecter la même image envoyée deux fois
+const fingerprintCache = new WeakMap();
+function fileFingerprint(file) {
+    if (!fingerprintCache.has(file)) {
+        fingerprintCache.set(file, (async () => {
+            try {
+                if (window.crypto && crypto.subtle) {
+                    const hash = await crypto.subtle.digest('SHA-256', await file.arrayBuffer());
+                    return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+                }
+            } catch (e) { /* on retombe sur nom + taille + date */ }
+            return file.name + '|' + file.size + '|' + file.lastModified;
+        })());
+    }
+    return fingerprintCache.get(file);
+}
+
+// Contrôles croisés CNI / permis : deux photos différentes, et chaque photo ne contient pas le numéro de l'autre document
+async function crossCheckDocuments(kind) {
+    const idFile  = document.getElementById('resIdentityDoc').files[0];
+    const licFile = document.getElementById('driverLicenseFile').files[0];
+    const idNum   = document.getElementById('idCard').value;
+    const licNum  = document.getElementById('driverLicense').value;
+
+    if (idFile && licFile) {
+        const [a, b] = await Promise.all([fileFingerprint(idFile), fileFingerprint(licFile)]);
+        if (a === b) return "La photo de la CNI et celle du permis sont identiques : envoyez deux documents différents.";
+    }
+
+    const ownNum   = kind === 'identity' ? idNum : licNum;
+    const otherNum = kind === 'identity' ? licNum : idNum;
+    const file     = kind === 'identity' ? idFile : licFile;
+    if (file && normalizeOcr(otherNum) && normalizeOcr(otherNum) !== normalizeOcr(ownNum)) {
+        if (await ocrFirstPassContains(file, otherNum)) {
+            return kind === 'identity'
+                ? "Cette photo contient le numéro du permis de conduire : envoyez la photo de votre CNI."
+                : "Cette photo contient le numéro de la CNI : envoyez la photo de votre permis de conduire.";
+        }
+    }
+    return null;
 }
 
 /* ---------- VALIDATION DE LA PHOTO DE LA CNI AVEC TESSERACT.JS ---------- */
@@ -618,6 +764,13 @@ async function validateResIdentity() {
         return;
     }
 
+    if (document.getElementById('resName').value.trim() === "") {
+        resSetError(el, errorEl, "Veuillez d'abord saisir votre nom et prénoms.");
+        resValidState.identity = false;
+        refreshResSubmitState();
+        return;
+    }
+
     if (!isImageFile(el.files[0])) {
         resSetError(el, errorEl, "Format non pris en charge : envoyez une photo (JPG ou PNG), pas un PDF.");
         resValidState.identity = false;
@@ -636,8 +789,20 @@ async function validateResIdentity() {
         // Vérification si le numéro saisi correspond au texte détecté sur l'image (lecture tolérante)
         const matches = await ocrMatchesNumber(file, textEl.value);
         if (matches) {
-            resSetValid(el, errorEl);
-            resValidState.identity = true;
+            const crossError = await crossCheckDocuments('identity');
+            if (crossError) {
+                resSetError(el, errorEl, crossError);
+                resValidState.identity = false;
+            } else {
+                const nameOk = await ocrMatchesName(file, document.getElementById('resName').value);
+                if (nameOk) {
+                    resSetValid(el, errorEl);
+                    resValidState.identity = true;
+                } else {
+                    resSetError(el, errorEl, "Le nom et prénoms saisis ne correspondent pas à ceux de la carte d'identité.");
+                    resValidState.identity = false;
+                }
+            }
         } else {
             resSetError(el, errorEl, "Le numéro sur la photo ne correspond pas au numéro de CNI saisi !");
             resValidState.identity = false;
@@ -668,6 +833,12 @@ function validateResLicense() {
         resValidState.license = false;
         return;
     }
+    const idNorm = normalizeOcr(document.getElementById('idCard').value);
+    if (idNorm && idNorm === normalizeOcr(value)) {
+        resSetError(el, errorEl, "Le numéro de permis doit être différent du numéro de CNI.");
+        resValidState.license = false;
+        return;
+    }
     resSetValid(el, errorEl);
     resValidState.license = true;
 }
@@ -694,6 +865,13 @@ async function validateResLicenseFile() {
         return;
     }
 
+    if (document.getElementById('resName').value.trim() === "") {
+        resSetError(el, errorEl, "Veuillez d'abord saisir votre nom et prénoms.");
+        resValidState.licenseFile = false;
+        refreshResSubmitState();
+        return;
+    }
+
     if (!isImageFile(el.files[0])) {
         resSetError(el, errorEl, "Format non pris en charge : envoyez une photo (JPG ou PNG), pas un PDF.");
         resValidState.licenseFile = false;
@@ -713,8 +891,22 @@ async function validateResLicenseFile() {
         if (myCheck !== licenseFileCheckId) return; // résultat périmé (nouvelle saisie entre-temps)
 
         if (matches) {
-            resSetValid(el, errorEl);
-            resValidState.licenseFile = true;
+            const crossError = await crossCheckDocuments('license');
+            if (myCheck !== licenseFileCheckId) return;
+            if (crossError) {
+                resSetError(el, errorEl, crossError);
+                resValidState.licenseFile = false;
+            } else {
+                const nameOk = await ocrMatchesName(el.files[0], document.getElementById('resName').value);
+                if (myCheck !== licenseFileCheckId) return;
+                if (nameOk) {
+                    resSetValid(el, errorEl);
+                    resValidState.licenseFile = true;
+                } else {
+                    resSetError(el, errorEl, "Le nom et prénoms saisis ne correspondent pas à ceux du permis de conduire.");
+                    resValidState.licenseFile = false;
+                }
+            }
         } else {
             resSetError(el, errorEl, "Le numéro sur la photo du permis ne correspond pas au numéro saisi !");
             resValidState.licenseFile = false;
@@ -854,20 +1046,21 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('resModalOverlay').addEventListener('click', closeReservationModal);
     document.getElementById('reservationForm').addEventListener('submit', handleReservationSubmit);
     
-    document.getElementById('resName').addEventListener('input', () => { validateResName(); refreshResSubmitState(); });
+    document.getElementById('resName').addEventListener('input', () => { validateResName(); validateResIdentity(); validateResLicenseFile(); refreshResSubmitState(); });
     document.getElementById('resPhone').addEventListener('input', () => { validateResPhone(); refreshResSubmitState(); });
     document.getElementById('resDuration').addEventListener('change', () => { validateResDuration(); refreshResSubmitState(); });
     
     const idCardInput = document.getElementById('idCard');
     if (idCardInput) {
-        idCardInput.addEventListener('input', () => { validateResIdCard(); validateResIdentity(); refreshResSubmitState(); });
-        idCardInput.addEventListener('blur', () => { validateResIdCard(); validateResIdentity(); refreshResSubmitState(); });
+        idCardInput.addEventListener('input', () => { validateResIdCard(); validateResLicense(); validateResIdentity(); refreshResSubmitState(); });
+        idCardInput.addEventListener('blur', () => { validateResIdCard(); validateResLicense(); validateResIdentity(); validateResLicenseFile(); refreshResSubmitState(); });
     }
 
     const identityInput = document.getElementById('resIdentityDoc');
     if (identityInput) {
         identityInput.addEventListener('change', () => {
             validateResIdentity();
+            validateResLicenseFile();
             refreshResSubmitState();
         });
     }
@@ -875,13 +1068,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const licenseInput = document.getElementById('driverLicense');
     if (licenseInput) {
         licenseInput.addEventListener('input', () => { validateResLicense(); validateResLicenseFile(); refreshResSubmitState(); });
-        licenseInput.addEventListener('blur', () => { validateResLicense(); validateResLicenseFile(); refreshResSubmitState(); });
+        licenseInput.addEventListener('blur', () => { validateResLicense(); validateResLicenseFile(); validateResIdentity(); refreshResSubmitState(); });
     }
 
     const licenseFileInput = document.getElementById('driverLicenseFile');
     if (licenseFileInput) {
         licenseFileInput.addEventListener('change', () => {
             validateResLicenseFile();
+            validateResIdentity();
             refreshResSubmitState();
         });
     }

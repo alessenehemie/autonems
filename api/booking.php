@@ -55,6 +55,8 @@ function ensure_reservations_columns(PDO $pdo) {$needed = [
         'en_cours'            => "TINYINT(1) DEFAULT 1",
         'statut'              => "VARCHAR(50) DEFAULT 'En cours'",
         'mode_contact'        => "VARCHAR(50) DEFAULT 'Manuel'",
+        'verified'            => "TINYINT(1) NOT NULL DEFAULT 0",
+        'verified_at'         => "DATETIME NULL DEFAULT NULL",
     ];
     foreach ($needed as $col =>$definition) {
         $exists =$pdo->query("SHOW COLUMNS FROM reservations LIKE '" . $col . "'")->rowCount();
@@ -234,6 +236,21 @@ if ($action === 'create') {
             echo json_encode(['success' => false, 'message' => 'Informations manquantes ou invalides : ' . implode(', ', $missing) . '.']);
             exit;
         }
+
+        // Cohérence : la CNI et le permis doivent être deux documents différents (numéros et photos)
+        $normCni    = preg_replace('/[^A-Z0-9]/', '', strtoupper((string) $id_card_number));
+        $normPermis = preg_replace('/[^A-Z0-9]/', '', strtoupper((string) $driver_license));
+        $sameNumber = ($normCni !== '' && $normCni === $normPermis);
+        $samePhoto  = ($id_card_path && $driver_license_path
+                       && sha1_file(__DIR__ . '/../' . $id_card_path) === sha1_file(__DIR__ . '/../' . $driver_license_path));
+        if ($sameNumber || $samePhoto) {
+            if ($id_card_path)        { @unlink(__DIR__ . '/../' . $id_card_path); }
+            if ($driver_license_path) { @unlink(__DIR__ . '/../' . $driver_license_path); }
+            echo json_encode(['success' => false, 'message' => $sameNumber
+                ? 'Le numéro de permis doit être différent du numéro de CNI.'
+                : 'La photo de la CNI et celle du permis doivent être deux documents différents.']);
+            exit;
+        }
     }
 
     try {
@@ -253,6 +270,8 @@ if ($action === 'create') {
             en_cours TINYINT(1) DEFAULT 1,
             statut VARCHAR(50) DEFAULT 'En cours',
             mode_contact VARCHAR(50) DEFAULT 'Manuel',
+            verified TINYINT(1) NOT NULL DEFAULT 0,
+            verified_at DATETIME NULL DEFAULT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             KEY idx_car_id (car_id)
         )");
@@ -262,7 +281,7 @@ if ($action === 'create') {
         $pdo->beginTransaction();
 
         $nowCheck  = (int) round(microtime(true) * 1000);
-        $stmtCheck =$pdo->prepare("SELECT id FROM reservations WHERE car_id = ? AND en_cours = 1 AND (until_ts > ? OR statut = 'Confirmée') FOR UPDATE");
+        $stmtCheck =$pdo->prepare("SELECT id FROM reservations WHERE car_id = ? AND en_cours = 1 AND until_ts > ? FOR UPDATE");
         $stmtCheck->execute([$car_id,$nowCheck]);
         if ($stmtCheck->fetch()) {$pdo->rollBack();
             if ($id_card_path) { @unlink(__DIR__ . '/../' .$id_card_path); }
@@ -326,7 +345,7 @@ if ($action === 'public_list') {
         if ($pdo->query("SHOW TABLES LIKE 'reservations'")->rowCount() > 0) {
             $now  = (int) round(microtime(true) * 1000);
             $stmt = $pdo->prepare("SELECT car_id, car_name, until_ts, statut FROM reservations
-                                   WHERE en_cours = 1 AND (until_ts > ? OR statut = 'Confirmée') ORDER BY id ASC");
+                                   WHERE en_cours = 1 AND until_ts > ? ORDER BY id ASC");
             $stmt->execute([$now]);
             foreach ($stmt->fetchAll() as $r) {
                 $out[$r['car_id']] = [
@@ -378,6 +397,26 @@ if ($action === 'update_status') {
         echo json_encode(['success' => true, 'message' => 'Statut mis à jour.']);
     } catch (Exception $e) {
         if ($pdo->inTransaction()) { $pdo->rollBack(); }
+        echo json_encode(['success' => false, 'message' => 'Erreur lors de la mise à jour : ' . $e->getMessage()]);
+    }
+    exit;
+}
+
+// --- MARQUER UN DOSSIER COMME VÉRIFIÉ / À VÉRIFIER (admin : contrôle visuel des photos CNI et permis) ---
+if ($action === 'set_verified') {
+    $id       = $_POST['id'] ?? null;
+    $verified = (isset($_POST['verified']) && $_POST['verified'] == '1') ? 1 : 0;
+    if (empty($id)) {
+        echo json_encode(['success' => false, 'message' => 'ID de réservation manquant.']);
+        exit;
+    }
+
+    try {
+        ensure_reservations_columns($pdo); // ajoute les colonnes verified / verified_at si elles n'existent pas encore
+        $stmt = $pdo->prepare("UPDATE reservations SET verified = ?, verified_at = " . ($verified ? "NOW()" : "NULL") . " WHERE id = ?");
+        $stmt->execute([$verified, $id]);
+        echo json_encode(['success' => true, 'message' => $verified ? 'Dossier marqué comme vérifié.' : 'Vérification annulée.']);
+    } catch (Exception $e) {
         echo json_encode(['success' => false, 'message' => 'Erreur lors de la mise à jour : ' . $e->getMessage()]);
     }
     exit;

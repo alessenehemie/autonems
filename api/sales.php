@@ -25,6 +25,59 @@ try {
     exit;
 }
 
+// Nettoie un texte reçu (retire le HTML, limite la longueur à celle de la colonne SQL)
+function clean_text($value, $max) {
+    if ($value === null) return null;
+    return mb_substr(trim(strip_tags((string)$value)), 0, $max);
+}
+
+// Enregistre une photo de document (CNI / permis) de façon sécurisée :
+// extension + type MIME contrôlés (jpg, png, pdf), 5 Mo max, nom aléatoire, dossier protégé contre l'exécution de PHP.
+// $keys = noms possibles du champ fichier (site public et tableau de bord n'utilisent pas les mêmes noms).
+function save_uploaded_doc(array $keys, $prefix) {
+    foreach ($keys as $key) {
+        if (!isset($_FILES[$key]) || $_FILES[$key]['error'] !== UPLOAD_ERR_OK) continue;
+
+        $tmp = $_FILES[$key]['tmp_name'];
+        $ext = strtolower(pathinfo($_FILES[$key]['name'], PATHINFO_EXTENSION));
+        if (!in_array($ext, ['jpg', 'jpeg', 'png', 'pdf'], true)) return null;
+        if ($_FILES[$key]['size'] > 5 * 1024 * 1024) return null;
+
+        if (function_exists('finfo_open')) {
+            $finfo = finfo_open(FILEINFO_MIME_TYPE);
+            $mime  = $finfo ? finfo_file($finfo, $tmp) : '';
+            if ($finfo) { finfo_close($finfo); }
+            if (!in_array($mime, ['image/jpeg', 'image/png', 'application/pdf'], true)) return null;
+        }
+
+        $dir = __DIR__ . '/../uploads/ids/';
+        if (!is_dir($dir)) { @mkdir($dir, 0755, true); }
+        $htaccess = $dir . '.htaccess';
+        if (!file_exists($htaccess)) {
+            @file_put_contents($htaccess, "Options -Indexes\n" . '<FilesMatch "\.(php|phtml|phar|php[0-9])$">' . "\n" . "    Require all denied\n</FilesMatch>\n");
+        }
+
+        $name = $prefix . bin2hex(random_bytes(16)) . '.' . $ext;
+        if (@move_uploaded_file($tmp, $dir . $name)) return 'uploads/ids/' . $name;
+        return null;
+    }
+    return null;
+}
+
+// Ajoute les colonnes "verified" / "verified_at" si la table "sales" existe déjà sans elles
+function ensure_sales_columns(PDO $pdo) {
+    $needed = [
+        'verified'    => "TINYINT(1) NOT NULL DEFAULT 0",
+        'verified_at' => "DATETIME NULL DEFAULT NULL",
+    ];
+    foreach ($needed as $col => $definition) {
+        $exists = $pdo->query("SHOW COLUMNS FROM sales LIKE '" . $col . "'")->rowCount();
+        if (!$exists) {
+            try { $pdo->exec("ALTER TABLE sales ADD COLUMN `$col` $definition"); } catch (Exception $e) { /* ignoré */ }
+        }
+    }
+}
+
 $action = $_GET['action'] ?? $_POST['action'] ?? '';
 
 // --- 1. ENREGISTRER UNE VENTE ---
@@ -38,33 +91,55 @@ if ($action === 'create') {
     $id_card_number        = $_POST['id_card_number'] ?? null;
     $driver_license_number = $_POST['driver_license_number'] ?? null;
 
+    // Nettoyage des textes reçus (le tableau de bord affiche ces valeurs telles quelles : on retire tout HTML)
+    $car_name              = clean_text($car_name, 255);
+    $car_details           = clean_text($car_details, 2000);
+    $buyer_nom             = clean_text($buyer_nom, 100);
+    $buyer_telephone       = clean_text($buyer_telephone, 50);
+    $payment_method        = clean_text($payment_method, 50);
+    $id_card_number        = clean_text($id_card_number, 100);
+    $driver_license_number = clean_text($driver_license_number, 100);
+    $sale_price            = is_numeric($sale_price) ? max(0, (float) $sale_price) : 0;
+
     if (empty($buyer_nom) || empty($buyer_telephone) || empty($car_name)) {
         echo json_encode(['success' => false, 'message' => 'Veuillez remplir les informations obligatoires (nom, téléphone, véhicule).']);
         exit;
     }
 
-    // Utilisation directe de ton sous-dossier uploads existant (situé à la racine du projet par rapport à api/)
-    $uploadDir = '../uploads/';
-    $idCardPath = null;
-    $driverLicensePath = null;
+    // Photos enregistrées dans uploads/ids/ (dossier protégé, noms aléatoires, types contrôlés).
+    // Le site public envoie "idCardFile" / "driverLicenseFile", le tableau de bord envoie "id_card_path" / "driver_license_path".
+    $idCardPath        = save_uploaded_doc(['idCardFile', 'id_card_path'], 'cni_');
+    $driverLicensePath = save_uploaded_doc(['driverLicenseFile', 'driver_license_path'], 'permis_');
 
-    // Traitement de la photo CNI
-    if (isset($_FILES['idCardFile']) && $_FILES['idCardFile']['error'] === UPLOAD_ERR_OK) {
-        $fileTmpName = $_FILES['idCardFile']['tmp_name'];
-        $fileName = time() . '_cni_' . basename($_FILES['idCardFile']['name']);
-        $destination = $uploadDir . $fileName;
-        if (move_uploaded_file($fileTmpName, $destination)) {
-            $idCardPath = 'uploads/' . $fileName;
+    // --- CONTRÔLE SERVEUR (formulaire d'achat du site) ---
+    // Le site public envoie "car_details" : dans ce cas, numéros et photos CNI / permis sont obligatoires
+    // (un envoi direct à l'API sans passer par le formulaire est donc refusé).
+    if (isset($_POST['car_details'])) {
+        $missing = [];
+        if (empty($id_card_number))        { $missing[] = 'numéro de CNI'; }
+        if (!$idCardPath)                  { $missing[] = 'photo de la CNI (JPG, PNG ou PDF, 5 Mo max)'; }
+        if (empty($driver_license_number)) { $missing[] = 'numéro de permis'; }
+        if (!$driverLicensePath)           { $missing[] = 'photo du permis (JPG, PNG ou PDF, 5 Mo max)'; }
+        if ($missing) {
+            if ($idCardPath)        { @unlink(__DIR__ . '/../' . $idCardPath); }
+            if ($driverLicensePath) { @unlink(__DIR__ . '/../' . $driverLicensePath); }
+            echo json_encode(['success' => false, 'message' => 'Informations manquantes ou invalides : ' . implode(', ', $missing) . '.']);
+            exit;
         }
-    }
 
-    // Traitement de la photo du Permis
-    if (isset($_FILES['driverLicenseFile']) && $_FILES['driverLicenseFile']['error'] === UPLOAD_ERR_OK) {
-        $fileTmpName = $_FILES['driverLicenseFile']['tmp_name'];
-        $fileName = time() . '_permis_' . basename($_FILES['driverLicenseFile']['name']);
-        $destination = $uploadDir . $fileName;
-        if (move_uploaded_file($fileTmpName, $destination)) {
-            $driverLicensePath = 'uploads/' . $fileName;
+        // Cohérence : la CNI et le permis doivent être deux documents différents (numéros et photos)
+        $normCni    = preg_replace('/[^A-Z0-9]/', '', strtoupper((string) $id_card_number));
+        $normPermis = preg_replace('/[^A-Z0-9]/', '', strtoupper((string) $driver_license_number));
+        $sameNumber = ($normCni !== '' && $normCni === $normPermis);
+        $samePhoto  = ($idCardPath && $driverLicensePath
+                       && sha1_file(__DIR__ . '/../' . $idCardPath) === sha1_file(__DIR__ . '/../' . $driverLicensePath));
+        if ($sameNumber || $samePhoto) {
+            if ($idCardPath)        { @unlink(__DIR__ . '/../' . $idCardPath); }
+            if ($driverLicensePath) { @unlink(__DIR__ . '/../' . $driverLicensePath); }
+            echo json_encode(['success' => false, 'message' => $sameNumber
+                ? 'Le numéro de permis doit être différent du numéro de CNI.'
+                : 'La photo de la CNI et celle du permis doivent être deux documents différents.']);
+            exit;
         }
     }
 
@@ -81,6 +156,8 @@ if ($action === 'create') {
             driver_license_number VARCHAR(100) DEFAULT NULL,
             id_card_path VARCHAR(255) DEFAULT NULL,
             driver_license_path VARCHAR(255) DEFAULT NULL,
+            verified TINYINT(1) NOT NULL DEFAULT 0,
+            verified_at DATETIME NULL DEFAULT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )");
 
@@ -121,6 +198,26 @@ if ($action === 'list') {
         echo json_encode(['success' => true, 'sales' => $sales]);
     } catch (Exception $e) {
         echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+    }
+    exit;
+}
+
+// --- MARQUER UN DOSSIER COMME VÉRIFIÉ / À VÉRIFIER (admin : contrôle visuel des photos CNI et permis) ---
+if ($action === 'set_verified') {
+    $id       = $_POST['id'] ?? null;
+    $verified = (isset($_POST['verified']) && $_POST['verified'] == '1') ? 1 : 0;
+    if (empty($id)) {
+        echo json_encode(['success' => false, 'message' => 'ID de vente manquant.']);
+        exit;
+    }
+
+    try {
+        ensure_sales_columns($pdo);
+        $stmt = $pdo->prepare("UPDATE sales SET verified = ?, verified_at = " . ($verified ? "NOW()" : "NULL") . " WHERE id = ?");
+        $stmt->execute([$verified, $id]);
+        echo json_encode(['success' => true, 'message' => $verified ? 'Dossier marqué comme vérifié.' : 'Vérification annulée.']);
+    } catch (Exception $e) {
+        echo json_encode(['success' => false, 'message' => 'Erreur lors de la mise à jour : ' . $e->getMessage()]);
     }
     exit;
 }

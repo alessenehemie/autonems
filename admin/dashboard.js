@@ -124,6 +124,51 @@ function initLogout() {
     });
 }
  
+/* ---------- Dossiers vérifiés (contrôle visuel de la CNI et du permis par l'admin) ---------- */
+function verifyHtml(item, type) {
+    const ok = Number(item.verified) === 1 || item.verified === true;
+    const d = ok && item.verified_at ? new Date(String(item.verified_at).replace(' ', 'T')) : null;
+    const when = d && !isNaN(d) ? ' le ' + d.toLocaleString('fr-FR') : '';
+    const badge = ok
+        ? `<span class="verify-badge verify-ok">✔ Vérifié${when}</span>`
+        : `<span class="verify-badge verify-todo">À vérifier</span>`;
+    const btn = `<button type="button" class="btn-verify" data-id="${item.id}" data-type="${type}" data-verified="${ok ? 0 : 1}">${ok ? 'Annuler la vérification' : '✔ Marquer comme vérifié'}</button>`;
+    return `<div class="verify-box">${badge}${btn}</div>`;
+}
+
+async function setVerified(type, id, verified) {
+    const isSale = type === 'sale';
+    const list = isSale ? currentSales : currentReservations;
+    const obj = list.find(x => String(x.id) === String(id));
+
+    // Affichage immédiat, puis envoi au serveur
+    if (obj) {
+        const d = new Date();
+        const p = n => String(n).padStart(2, '0');
+        obj.verified = verified ? 1 : 0;
+        obj.verified_at = verified
+            ? `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+            : null;
+        if (isSale) renderSales(); else renderReservations();
+        updateStats();
+    }
+
+    try {
+        const res = await fetch(API_BASE + (isSale ? 'sales.php' : 'booking.php'), {
+            method: 'POST',
+            body: new URLSearchParams({ action: 'set_verified', id, verified: verified ? '1' : '0' })
+        });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.message || 'Erreur inconnue');
+    } catch (err) {
+        alert('Erreur lors de la mise à jour de la vérification : ' + err.message);
+    }
+
+    // Resynchronise avec le serveur (corrige l'affichage en cas d'erreur)
+    if (isSale) { lastSalesSig = ''; loadSales().then(updateStats); }
+    else { lastReservationsSig = ''; loadReservations().then(updateStats); }
+}
+
 /* ---------- Stats ---------- */
 function updateStats() {
     const total = currentVehicules.length;
@@ -139,6 +184,14 @@ function updateStats() {
     
     const statVentes = document.getElementById('statVentes');
     if (statVentes) statVentes.textContent = totalSales;
+
+    // Dossiers dont les photos CNI / permis n'ont pas encore été contrôlées par l'admin
+    const statAVerifier = document.getElementById('statAVerifier');
+    if (statAVerifier) {
+        const todoRes = currentReservations.filter(r => Number(r.verified) !== 1 && (r.statut || 'En cours') !== 'Terminée').length;
+        const todoSales = currentSales.filter(s => Number(s.verified) !== 1).length;
+        statAVerifier.textContent = todoRes + todoSales;
+    }
 }
  
 /* ---------- Chargement + rendu des véhicules ---------- */
@@ -558,6 +611,7 @@ function renderReservations() {
                 </td>
                 <td>${r.created_at ? new Date(r.created_at).toLocaleString('fr-FR') : '—'}</td>
                 <td>
+                    ${verifyHtml(r, 'reservation')}
                     <button class="btn-icon btn-delete" data-id="${r.id}" title="Supprimer" style="background:#ef4444; color:#fff; border:none; padding:6px 10px; border-radius:6px; cursor:pointer;" aria-label="Supprimer">
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
                     </button>
@@ -568,6 +622,10 @@ function renderReservations() {
  
     tbody.querySelectorAll('.btn-delete').forEach(btn => {
         btn.addEventListener('click', () => deleteReservation(btn.dataset.id));
+    });
+
+    tbody.querySelectorAll('.btn-verify').forEach(btn => {
+        btn.addEventListener('click', () => setVerified(btn.dataset.type, btn.dataset.id, btn.dataset.verified === '1'));
     });
 
     tbody.querySelectorAll('.status-select').forEach(sel => {
@@ -764,6 +822,7 @@ function renderSales() {
                 <td><strong style="color:#34d399;">${fmt(s.sale_price)}</strong></td>
                 <td>${s.created_at ? new Date(s.created_at).toLocaleString('fr-FR') : '—'}</td>
                 <td>
+                    ${verifyHtml(s, 'sale')}
                     <button class="btn-icon btn-delete-sale" data-id="${s.id}" title="Supprimer" style="background:#ef4444; color:#fff; border:none; padding:6px 10px; border-radius:6px; cursor:pointer;" aria-label="Supprimer">
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
                     </button>
@@ -774,6 +833,10 @@ function renderSales() {
 
     tbody.querySelectorAll('.btn-delete-sale').forEach(btn => {
         btn.addEventListener('click', () => deleteSale(btn.dataset.id));
+    });
+
+    tbody.querySelectorAll('.btn-verify').forEach(btn => {
+        btn.addEventListener('click', () => setVerified(btn.dataset.type, btn.dataset.id, btn.dataset.verified === '1'));
     });
 }
 
