@@ -543,3 +543,118 @@ img.img-preview {
         gap: 15px;
     }
 }
+
+/* ============================================================ */
+/* OPTIMISATIONS DE FLUIDITÉ (surcharges — le CSS ci-dessus reste intact) */
+/* ============================================================ */
+
+/* 1. Le flou d'arrière-plan (backdrop-filter) est très coûteux : il est recalculé à chaque défilement.
+      On le retire des grandes zones et on rend le fond un peu plus opaque pour garder le même rendu. */
+.admin-sidebar,
+.stat-card,
+.card-box {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+}
+.admin-sidebar { background: rgba(15, 23, 42, 0.97); }
+.stat-card     { background: rgba(15, 23, 42, 0.94); }
+.card-box      { background: rgba(15, 23, 42, 0.95); }
+
+/* 2. Fenêtres modales : fond plus opaque au lieu d'un flou plein écran */
+.veh-modal-overlay.open,
+.modal-overlay.open {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: rgba(9, 13, 22, 0.92) !important;
+}
+
+/* 3. Image de fond : plus légère (1280 px, qualité 60) et sur sa propre couche fixe
+      au lieu de "background-attachment: fixed" (qui force un nouveau dessin à chaque défilement).
+      Pour aller plus vite encore : enregistrez l'image dans image/admin-bg.jpg et utilisez url('../image/admin-bg.jpg'). */
+body.admin-dashboard {
+    background: #0b1120;
+}
+body.admin-dashboard::before {
+    content: '';
+    position: fixed;
+    top: 0; right: 0; bottom: 0; left: 0;
+    z-index: -1;
+    background: linear-gradient(135deg, rgba(9, 13, 22, 0.85) 0%, rgba(17, 24, 39, 0.92) 100%),
+                url('https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&w=1280&q=60') center / cover no-repeat;
+    transform: translateZ(0);
+}
+
+/* 4. Transitions limitées aux propriétés utiles (au lieu de "all") */
+.admin-sidebar nav a { transition: background 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease; }
+.btn-primary, .btn-logout { transition: opacity 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease; }
+
+/* 5. Respect du réglage "réduire les animations" du téléphone / ordinateur */
+@media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+}
+
+/* ============================================================ */
+/* FICHE DÉTAILLÉE D'UN VÉHICULE (clic sur une ligne du catalogue) */
+/* ============================================================ */
+#stockTableBody tr.veh-row { cursor: pointer; }
+
+.veh-detail-img {
+    display: block;
+    width: 100%;
+    max-height: 320px;
+    object-fit: cover;
+    border-radius: 12px;
+    border: 1px solid rgba(56, 189, 248, 0.3);
+    margin-bottom: 18px;
+}
+.veh-detail-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+}
+.veh-detail-head h3 { margin: 0; font-size: 1.3rem; color: #f8fafc; }
+.veh-detail-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px;
+}
+.veh-detail-item {
+    background: rgba(30, 41, 59, 0.9);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 10px;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.veh-detail-label {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #38bdf8;
+    font-weight: 600;
+}
+.veh-detail-value { font-size: 1rem; color: #f8fafc; font-weight: 500; word-break: break-word; }
+.veh-detail-sub { color: #38bdf8; margin: 22px 0 8px; font-size: 1rem; }
+.veh-detail-desc { color: #e2e8f0; line-height: 1.6; margin: 0; white-space: pre-line; }
+.veh-detail-equip { list-style: none; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.veh-detail-equip li {
+    background: rgba(2, 132, 199, 0.2);
+    border: 1px solid rgba(56, 189, 248, 0.4);
+    color: #e0f2fe;
+    padding: 5px 12px;
+    border-radius: 20px;
+    font-size: 0.85rem;
+}
+.veh-detail-reserv {
+    background: rgba(251, 191, 36, 0.12);
+    border: 1px solid rgba(251, 191, 36, 0.4);
+    border-radius: 10px;
+    padding: 12px 14px;
+    color: #fde68a;
+    line-height: 1.6;
+}
+.veh-detail-dates { margin: 20px 0 0; font-size: 0.8rem; color: #94a3b8; }

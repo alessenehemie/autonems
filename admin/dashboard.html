@@ -437,6 +437,19 @@
         </div>
     </div>
 
+    <!-- MODAL DÉTAILS VÉHICULE (clic sur une ligne du catalogue) -->
+    <div class="veh-modal-overlay" id="vehicleDetailOverlay">
+        <div class="veh-modal">
+            <button type="button" class="veh-modal-close" id="vehicleDetailClose">&times;</button>
+            <h2 id="vehicleDetailTitle">Détails du véhicule</h2>
+            <div id="vehicleDetailBody"></div>
+            <div class="modal-actions">
+                <button type="button" class="btn-secondary" id="vehicleDetailCloseBtn">Fermer</button>
+                <button type="button" class="btn-primary" id="vehicleDetailEditBtn">Modifier ce véhicule</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Modale de confirmation de suppression personnalisée -->
     <div id="confirmModalOverlay" class="modal-overlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:9999; justify-content:center; align-items:center;">
         <div class="modal-content" style="background:#fff; padding:25px; border-radius:12px; max-width:400px; width:90%; text-align:center; box-shadow:0 4px 20px rgba(0,0,0,0.15);">

@@ -82,6 +82,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     initTabs();
     initLogout();
     initVehicleModal();
+    initVehicleDetailModal();
     initSettingsForm();
     initReservationsActions();
     initSalesModal(); 
@@ -163,8 +164,8 @@ function renderVehicules() {
         return;
     }
     tbody.innerHTML = currentVehicules.map(v => `
-        <tr>
-            <td><img class="table-thumb" src="${resolveImgSrc(v.img)}" alt="${v.nom}" onerror="this.style.visibility='hidden'" style="width: 50px; height: 35px; object-fit: cover; border-radius: 4px;"></td>
+        <tr class="veh-row" data-id="${v.id}" title="Cliquer pour voir tous les détails">
+            <td><img class="table-thumb" loading="lazy" decoding="async" src="${resolveImgSrc(v.img)}" alt="${v.nom}" onerror="this.style.visibility='hidden'" style="width: 50px; height: 35px; object-fit: cover; border-radius: 4px;"></td>
             <td class="veh-nom">${v.nom}</td>
             <td class="veh-marque">${v.marque || '—'}</td>
             <td class="veh-loc">${fmt(v.loc)}</td>
@@ -187,6 +188,14 @@ function renderVehicules() {
     tbody.querySelectorAll('.btn-delete').forEach(btn => {
         btn.addEventListener('click', () => deleteVehicule(String(btn.dataset.id)));
     });
+
+    // Clic sur une ligne (hors boutons Modifier / Supprimer) : affiche tous les détails du véhicule
+    tbody.querySelectorAll('tr.veh-row').forEach(row => {
+        row.addEventListener('click', (e) => {
+            if (e.target.closest('button, a')) return;
+            openVehicleDetail(String(row.dataset.id));
+        });
+    });
 }
  
 async function deleteVehicule(id) {
@@ -208,6 +217,103 @@ async function deleteVehicule(id) {
     }
 }
  
+/* ---------- Fiche détaillée d'un véhicule (clic sur une ligne du catalogue) ---------- */
+function escHtml(value) {
+    return String(value == null ? '' : value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+function fmtDateTime(value) {
+    if (!value) return '';
+    const d = new Date(String(value).replace(' ', 'T'));
+    return isNaN(d) ? '' : d.toLocaleString('fr-FR');
+}
+
+let detailVehicleId = null;
+
+function openVehicleDetail(id) {
+    const v = currentVehicules.find(x => String(x.id) === String(id));
+    const overlay = document.getElementById('vehicleDetailOverlay');
+    const body = document.getElementById('vehicleDetailBody');
+    if (!v || !overlay || !body) return;
+    detailVehicleId = String(v.id);
+
+    const imgSrc = resolveImgSrc(v.img);
+    const equip = Array.isArray(v.equipements) ? v.equipements : [];
+    const kmText = v.km ? (/[a-z]/i.test(String(v.km)) ? String(v.km) : v.km + ' km') : '';
+
+    // Caractéristiques
+    const specs = [
+        ['Marque', v.marque], ['Année', v.an || ''], ['Kilométrage', kmText], ['Boîte', v.boite],
+        ['Carburant', v.carburant], ['Places', v.places], ['Couleur', v.couleur],
+        ['Location / jour', fmt(v.loc)], ['Prix de vente', fmt(v.vente)]
+    ];
+    const specsHtml = specs.map(([label, value]) => `
+        <div class="veh-detail-item">
+            <span class="veh-detail-label">${label}</span>
+            <span class="veh-detail-value">${(value || value === 0) ? escHtml(value) : '—'}</span>
+        </div>`).join('');
+
+    // Réservation active éventuelle pour ce véhicule
+    const slug = slugify(v.nom);
+    const now = Date.now();
+    const activeRes = currentReservations.find(r =>
+        r.car_id === slug && r.en_cours !== false && (r.statut || 'En cours') !== 'Terminée' &&
+        (!Number(r.until_ts) || Number(r.until_ts) > now));
+    let reservHtml = '';
+    if (activeRes) {
+        const st = activeRes.statut || 'En cours';
+        reservHtml = `
+            <h4 class="veh-detail-sub">Réservation en cours</h4>
+            <div class="veh-detail-reserv">
+                <strong>${escHtml(STATUT_LABELS[st] || st)}</strong> — ${escHtml(activeRes.client_nom || 'Client')}${activeRes.client_telephone ? ' · ' + escHtml(activeRes.client_telephone) : ''}
+                ${activeRes.duree_label ? '<br>Durée : ' + escHtml(activeRes.duree_label) : ''}
+            </div>`;
+    }
+
+    const created = fmtDateTime(v.created_at);
+    const updated = fmtDateTime(v.updated_at);
+    const datesHtml = (created || updated)
+        ? `<p class="veh-detail-dates">${created ? 'Ajouté le ' + created : ''}${created && updated ? ' · ' : ''}${updated ? 'Modifié le ' + updated : ''}</p>`
+        : '';
+
+    document.getElementById('vehicleDetailTitle').textContent = v.nom || 'Détails du véhicule';
+    body.innerHTML = `
+        ${imgSrc ? `<img class="veh-detail-img" src="${escHtml(imgSrc)}" alt="${escHtml(v.nom)}" onerror="this.style.display='none'">` : ''}
+        <div class="veh-detail-head">
+            <h3>${escHtml(v.nom)}</h3>
+            <span class="badge ${v.dispo ? '' : 'badge-off'}">${v.dispo ? 'Disponible' : 'Indisponible'}</span>
+        </div>
+        <div class="veh-detail-grid">${specsHtml}</div>
+        ${v.description ? `<h4 class="veh-detail-sub">Description</h4><p class="veh-detail-desc">${escHtml(v.description)}</p>` : ''}
+        ${equip.length ? `<h4 class="veh-detail-sub">Équipements</h4><ul class="veh-detail-equip">${equip.map(e => `<li>${escHtml(e)}</li>`).join('')}</ul>` : ''}
+        ${reservHtml}
+        ${datesHtml}
+    `;
+    overlay.classList.add('open');
+}
+
+function closeVehicleDetail() {
+    const overlay = document.getElementById('vehicleDetailOverlay');
+    if (overlay) overlay.classList.remove('open');
+    detailVehicleId = null;
+}
+
+function initVehicleDetailModal() {
+    const overlay = document.getElementById('vehicleDetailOverlay');
+    const closeX = document.getElementById('vehicleDetailClose');
+    const closeBtn = document.getElementById('vehicleDetailCloseBtn');
+    const editBtn = document.getElementById('vehicleDetailEditBtn');
+
+    if (closeX) closeX.addEventListener('click', closeVehicleDetail);
+    if (closeBtn) closeBtn.addEventListener('click', closeVehicleDetail);
+    if (overlay) overlay.addEventListener('click', (e) => { if (e.target === overlay) closeVehicleDetail(); });
+    if (editBtn) editBtn.addEventListener('click', () => {
+        const id = detailVehicleId;
+        closeVehicleDetail();
+        if (id) openVehicleModal(id);
+    });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeVehicleDetail(); });
+}
+
 /* ---------- Modal ajout/modification véhicule ---------- */
 function initVehicleModal() {
     const overlay = document.getElementById('vehicleModalOverlay');
@@ -365,9 +471,15 @@ function renderChronoText(el) {
     }
 }
 function tickChronos() {
+    if (document.hidden) return;
     document.querySelectorAll('.admin-chrono').forEach(renderChronoText);
 }
 setInterval(tickChronos, 1000);
+
+// Optimisation : on ne redessine un tableau que si les données ont réellement changé
+// (évite le clignotement et le rechargement des photos toutes les 15 secondes)
+let lastReservationsSig = '';
+let lastSalesSig = '';
 
 async function loadReservations() {
     const tbody = document.getElementById('reservationsTableBody');
@@ -375,7 +487,11 @@ async function loadReservations() {
         const res = await fetch(API_BASE + 'booking.php?action=list');
         const data = await res.json();
         if (!data.success) throw new Error(data.message || 'Erreur inconnue');
-        currentReservations = data.reservations || [];
+        const nextReservations = data.reservations || [];
+        const sig = JSON.stringify(nextReservations);
+        if (sig === lastReservationsSig) return; // rien n'a changé : pas de redessin
+        lastReservationsSig = sig;
+        currentReservations = nextReservations;
         renderReservations();
     } catch (err) {
         console.error(err);
@@ -387,7 +503,7 @@ function renderReservations() {
     const tbody = document.getElementById('reservationsTableBody');
     if(!tbody) return;
     // Ne pas redessiner le tableau pendant que l'admin choisit un statut dans la liste déroulante
-    if (document.activeElement && document.activeElement.classList && document.activeElement.classList.contains('status-select')) return;
+    if (document.activeElement && document.activeElement.classList && document.activeElement.classList.contains('status-select')) { lastReservationsSig = ''; return; }
     if (!currentReservations.length) {
         tbody.innerHTML = `<tr class="empty-row"><td colspan="9">Aucune réservation reçue pour le moment.</td></tr>`;
         return;
@@ -399,12 +515,12 @@ function renderReservations() {
 
         // Miniature CNI cliquable
         const idCardHtml = idCardPath 
-            ? `<a href="${resolveImgSrc(idCardPath)}" target="_blank"><img class="table-thumb" src="${resolveImgSrc(idCardPath)}" alt="CNI" style="width:35px; height:35px; object-fit:cover; border-radius:4px; cursor:pointer;" title="Voir CNI"></a>` 
+            ? `<a href="${resolveImgSrc(idCardPath)}" target="_blank"><img class="table-thumb" loading="lazy" decoding="async" src="${resolveImgSrc(idCardPath)}" alt="CNI" style="width:35px; height:35px; object-fit:cover; border-radius:4px; cursor:pointer;" title="Voir CNI"></a>` 
             : '';
 
         // Miniature Permis cliquable
         const licenseHtml = licensePath 
-            ? `<a href="${resolveImgSrc(licensePath)}" target="_blank"><img class="table-thumb" src="${resolveImgSrc(licensePath)}" alt="Permis" style="width:35px; height:35px; object-fit:cover; border-radius:4px; cursor:pointer;" title="Voir Permis"></a>` 
+            ? `<a href="${resolveImgSrc(licensePath)}" target="_blank"><img class="table-thumb" loading="lazy" decoding="async" src="${resolveImgSrc(licensePath)}" alt="Permis" style="width:35px; height:35px; object-fit:cover; border-radius:4px; cursor:pointer;" title="Voir Permis"></a>` 
             : '';
 
         // Numéros d'identification
@@ -467,6 +583,7 @@ function renderReservations() {
                     resObj.en_cours = false;
                 }
             }
+            sel.blur(); // retire le focus de la liste, sinon le tableau ne se redessine pas tout de suite
             renderReservations();
             updateStats();
 
@@ -489,6 +606,7 @@ async function updateReservationStatus(id, statut) {
         if (!data.success) throw new Error(data.message);
     } catch (err) {
         alert('Erreur lors du changement de statut : ' + err.message);
+        lastReservationsSig = ''; // force le redessin avec les données réelles du serveur
         pollOnce(); // Re-synchronise avec le serveur en cas d'erreur
     }
 }
@@ -499,7 +617,18 @@ function pollOnce() {
 }
 
 function initReservationsActions() {
-    setInterval(pollOnce, 15000); // Rafraîchissement automatique toutes les 15 secondes
+    // Rafraîchissement automatique toutes les 15 secondes, uniquement quand l'onglet est visible
+    // (les ventes, qui changent rarement, ne sont rechargées qu'une fois sur 4 = toutes les 60 s)
+    let pollTick = 0;
+    setInterval(() => {
+        if (document.hidden) return;
+        pollTick++;
+        const jobs = [loadReservations()];
+        if (pollTick % 4 === 0) jobs.push(loadSales());
+        Promise.all(jobs).then(updateStats);
+    }, 15000);
+    // Mise à jour immédiate quand l'admin revient sur l'onglet
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) pollOnce(); });
 }
  
 async function deleteReservation(id) {
@@ -595,7 +724,11 @@ async function loadSales() {
         const res = await fetch(API_BASE + 'sales.php?action=list');
         const data = await res.json();
         if (!data.success) throw new Error(data.message || 'Erreur inconnue');
-        currentSales = data.sales || [];
+        const nextSales = data.sales || [];
+        const sig = JSON.stringify(nextSales);
+        if (sig === lastSalesSig) return; // rien n'a changé : pas de redessin
+        lastSalesSig = sig;
+        currentSales = nextSales;
         renderSales();
     } catch (err) {
         console.error("Erreur ventes :", err);
@@ -613,11 +746,11 @@ function renderSales() {
     tbody.innerHTML = currentSales.map(s => {
         // Génération des miniatures cliquables / affichage des numéros CNI et Permis
         const cniHtml = s.id_card_path 
-            ? `<a href="${resolveImgSrc(s.id_card_path)}" target="_blank"><img class="table-thumb" src="${resolveImgSrc(s.id_card_path)}" alt="CNI" style="width:35px; height:35px; object-fit:cover; border-radius:4px; cursor:pointer;" title="${s.id_card_number || 'Voir CNI'}"></a>` 
+            ? `<a href="${resolveImgSrc(s.id_card_path)}" target="_blank"><img class="table-thumb" loading="lazy" decoding="async" src="${resolveImgSrc(s.id_card_path)}" alt="CNI" style="width:35px; height:35px; object-fit:cover; border-radius:4px; cursor:pointer;" title="${s.id_card_number || 'Voir CNI'}"></a>` 
             : (s.id_card_number || '—');
 
         const permisHtml = s.driver_license_path 
-            ? `<a href="${resolveImgSrc(s.driver_license_path)}" target="_blank"><img class="table-thumb" src="${resolveImgSrc(s.driver_license_path)}" alt="Permis" style="width:35px; height:35px; object-fit:cover; border-radius:4px; cursor:pointer;" title="${s.driver_license_number || 'Voir Permis'}"></a>` 
+            ? `<a href="${resolveImgSrc(s.driver_license_path)}" target="_blank"><img class="table-thumb" loading="lazy" decoding="async" src="${resolveImgSrc(s.driver_license_path)}" alt="Permis" style="width:35px; height:35px; object-fit:cover; border-radius:4px; cursor:pointer;" title="${s.driver_license_number || 'Voir Permis'}"></a>` 
             : (s.driver_license_number || '—');
 
         return `
