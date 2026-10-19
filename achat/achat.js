@@ -665,6 +665,7 @@ function sendPurchaseWhatsApp(event) {
     if (idCardFileEl && idCardFileEl.files[0]) saleData.append('idCardFile', idCardFileEl.files[0]);
     if (driverLicenseFileEl && driverLicenseFileEl.files[0]) saleData.append('driverLicenseFile', driverLicenseFileEl.files[0]);
 
+    let alreadyTaken = false;
     fetch('../api/sales.php', {
         method: 'POST',
         body: saleData
@@ -679,6 +680,10 @@ function sendPurchaseWhatsApp(event) {
     .then(data => {
         if (!data.success) {
             console.error('Erreur lors de l’enregistrement de la vente : ', data.message);
+            if (data.code === 'ALREADY_PURCHASING') {
+                alreadyTaken = true;
+                alert(data.message);
+            }
         } else {
             console.log('Succès : ', data.message);
         }
@@ -687,6 +692,11 @@ function sendPurchaseWhatsApp(event) {
         console.error('Erreur réseau lors de l’enregistrement de la vente en base :', error);
     })
     .finally(() => {
+        if (alreadyTaken) { // un autre client a bloqué le véhicule entre-temps : pas de WhatsApp
+            if (loader) loader.style.display = 'none';
+            closeAchatModal();
+            return;
+        }
         let message = `Bonjour AutoNems, je souhaite finaliser l'achat du véhicule suivant :\n\n`;
         message += `Véhicule : ${CAR_NAME}\n`;
         if (CAR_PRICE) message += `Prix affiché : ${CAR_PRICE}\n`;

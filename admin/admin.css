@@ -1,5 +1,5 @@
 /* ============================================================
-   AUTONEMS ADMIN - DESIGN CONNEXION (HARMONISÉ)
+   AUTONEMS ADMIN - DESIGN CONNEXION (PLUS GRAND & RESPONSIF)
    ============================================================ */
 
 body {
@@ -11,11 +11,12 @@ body {
     background-attachment: fixed;
     color: #f8fafc;
     margin: 0;
-    padding: 0;
+    padding: 20px;
     display: flex;
     justify-content: center;
     align-items: center;
     min-height: 100vh;
+    box-sizing: border-box;
     animation: fadeInPage 0.8s ease-out;
 }
 
@@ -24,32 +25,32 @@ body {
     to { opacity: 1; transform: translateY(0); } 
 }
 
-/* Carte de connexion (Même design que vos formulaires de commande) */
+/* Carte de connexion (Agrandie) */
 .login-card {
-    background: rgba(15, 23, 42, 0.68);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
+    background: rgba(15, 23, 42, 0.72);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
     border: 1px solid rgba(56, 189, 248, 0.4);
-    border-radius: 20px;
-    padding: 35px;
+    border-radius: 24px;
+    padding: clamp(35px, 6vw, 55px); /* Plus d'espace intérieur */
     width: 100%;
-    max-width: 440px;
-    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.7);
+    max-width: 650px; /* Élargi significativement */
+    box-shadow: 0 25px 50px rgba(0, 0, 0, 0.8);
     box-sizing: border-box;
-    margin: 20px;
+    margin: auto;
     transition: transform 0.3s ease, box-shadow 0.3s ease;
 }
 
 .login-card:hover { 
-    box-shadow: 0 25px 50px rgba(56, 189, 248, 0.3); 
+    box-shadow: 0 30px 60px rgba(56, 189, 248, 0.35); 
 }
 
 /* Titre */
 .login-card h2 { 
     color: #f8fafc; 
     margin-top: 0; 
-    margin-bottom: 25px;
-    font-size: 1.6rem; 
+    margin-bottom: 30px;
+    font-size: clamp(1.6rem, 3.5vw, 2.1rem); /* Titre plus grand et lisible */
     text-align: center; 
     letter-spacing: 0.5px; 
     text-shadow: 0 2px 4px rgba(0,0,0,0.5); 
@@ -57,7 +58,7 @@ body {
 
 /* Groupes de formulaires */
 .form-group { 
-    margin-bottom: 20px; 
+    margin-bottom: 25px; 
     transition: transform 0.3s ease; 
 }
 .form-group:focus-within { 
@@ -67,9 +68,9 @@ body {
 /* Labels */
 .login-card label { 
     display: block; 
-    margin-bottom: 8px; 
+    margin-bottom: 10px; 
     font-weight: 500; 
-    font-size: 0.88rem; 
+    font-size: 1rem; /* Texte des labels agrandi */
     color: #e2e8f0; 
     text-shadow: 0 1px 2px rgba(0,0,0,0.5); 
 }
@@ -77,12 +78,12 @@ body {
 /* Champs de saisie */
 .login-card .form-control {
     width: 100%; 
-    padding: 13px; 
-    border-radius: 10px; 
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    background-color: rgba(15, 23, 42, 0.6); 
+    padding: 16px 18px; /* Champs plus spacieux et confortables */
+    border-radius: 12px; 
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    background-color: rgba(15, 23, 42, 0.65); 
     color: #fff; 
-    font-size: 0.95rem; 
+    font-size: 1.05rem; /* Texte saisi un peu plus grand */
     box-sizing: border-box;
     outline: none; 
     transition: all 0.25s ease;
@@ -90,8 +91,8 @@ body {
 
 .login-card .form-control:focus { 
     border-color: #38bdf8; 
-    background-color: rgba(15, 23, 42, 0.85); 
-    box-shadow: 0 0 12px rgba(56, 189, 248, 0.35); 
+    background-color: rgba(15, 23, 42, 0.9); 
+    box-shadow: 0 0 15px rgba(56, 189, 248, 0.4); 
 }
 
 /* Bouton de validation */
@@ -100,20 +101,20 @@ body {
     background: linear-gradient(135deg, #10b981 0%, #059669 100%); 
     color: #fff; 
     font-weight: bold;
-    padding: 14px; 
+    padding: 18px; /* Bouton plus large et facile à cliquer */
     border: none; 
-    border-radius: 10px; 
+    border-radius: 12px; 
     cursor: pointer; 
-    font-size: 1rem; 
+    font-size: 1.1rem; /* Texte du bouton plus grand */
     transition: all 0.3s ease;
-    margin-top: 10px; 
-    box-shadow: 0 4px 15px rgba(16, 185, 129, 0.4);
+    margin-top: 15px; 
+    box-shadow: 0 4px 20px rgba(16, 185, 129, 0.45);
 }
 
 .login-card .btn-primary:hover { 
     opacity: 0.95; 
     transform: translateY(-2px); 
-    box-shadow: 0 6px 20px rgba(16, 185, 129, 0.6); 
+    box-shadow: 0 8px 25px rgba(16, 185, 129, 0.65); 
 }
 
 .login-card .btn-primary:active {
@@ -125,10 +126,93 @@ body {
     background: rgba(248, 113, 113, 0.15);
     border: 1px solid rgba(248, 113, 113, 0.4);
     color: #fca5a5;
-    padding: 10px;
-    border-radius: 8px;
-    font-size: 0.82rem;
-    margin-bottom: 20px;
+    padding: 12px;
+    border-radius: 10px;
+    font-size: 0.9rem;
+    margin-bottom: 25px;
     text-align: center;
     font-weight: 600;
+}
+
+/* ============================================================
+   OPTIMISATIONS RESPONSIVES SUPPLÉMENTAIRES (Petits écrans)
+   ============================================================ */
+@media (max-width: 480px) {
+    body {
+        padding: 10px;
+    }
+    
+    .login-card {
+        padding: 25px;
+        border-radius: 16px;
+    }
+}
+
+/* ============================================================
+   AJOUT MOBILE : formulaire plus grand sur téléphone
+   (ajouté à la fin du fichier, le reste du CSS est inchangé)
+   ============================================================ */
+@media (max-width: 600px) {
+    body {
+        padding: 12px;
+        min-height: 100vh;
+        min-height: 100dvh;              /* hauteur réelle sur mobile (barre d'adresse) */
+        background-attachment: scroll;   /* "fixed" est bogué sur iOS/Android */
+        -webkit-text-size-adjust: 100%;
+    }
+
+    .login-card {
+        max-width: 100%;
+        padding: 32px 22px;
+        border-radius: 20px;
+    }
+
+    .login-card h2 {
+        font-size: 1.9rem;
+        margin-bottom: 28px;
+    }
+
+    .form-group {
+        margin-bottom: 22px;
+    }
+    .form-group:focus-within {
+        transform: none;                 /* évite le léger décalage au clavier */
+    }
+
+    .login-card label {
+        font-size: 1.1rem;
+        margin-bottom: 10px;
+    }
+
+    .login-card .form-control {
+        font-size: 1.15rem;              /* ≥16px : évite le zoom auto d'iOS */
+        padding: 18px 16px;
+        min-height: 58px;
+        border-radius: 14px;
+    }
+
+    .login-card .btn-primary {
+        font-size: 1.25rem;
+        padding: 20px;
+        min-height: 60px;
+        border-radius: 14px;
+    }
+    .login-card .btn-primary:hover {
+        transform: none;
+    }
+
+    .error-msg {
+        font-size: 1rem;
+        padding: 14px;
+    }
+}
+
+/* Très petits téléphones */
+@media (max-width: 360px) {
+    .login-card {
+        padding: 26px 16px;
+    }
+    .login-card h2 {
+        font-size: 1.7rem;
+    }
 }

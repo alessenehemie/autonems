@@ -9,6 +9,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
+/* Durée pendant laquelle un dossier « En cours de réservation » bloque le véhicule (depuis sa création).
+   Passé ce délai, le véhicule est de nouveau réservable, mais le dossier reste visible dans l'admin (« délai dépassé »). */
+define('RESERVATION_HOLD_HOURS', 2);
+define('RESERVATION_HOLD_MS', RESERVATION_HOLD_HOURS * 3600 * 1000);
+
+/* Condition SQL : la réservation bloque le véhicule si elle est « Réservé » (Confirmée),
+   ou « En cours » depuis moins de RESERVATION_HOLD_HOURS heures. Un seul paramètre « ? » = l'heure actuelle en ms. */
+function hold_condition() {
+    return "(statut = 'Confirmée' OR (COALESCE(NULLIF(statut, ''), 'En cours') = 'En cours' AND UNIX_TIMESTAMP(created_at) * 1000 + " . RESERVATION_HOLD_MS . " > ?))";
+}
+
 // Connexion à la base de données unifiée
 $host = 'localhost';$dbname = 'autonems';
 $username = 'root';$password = '';          
@@ -42,6 +53,13 @@ function clean_text($value,$max) {
     return mb_substr(trim(strip_tags((string)$value)), 0,$max);
 }
 
+// Supprime des fichiers déjà enregistrés (en cas de refus ou d'erreur après l'upload)
+function remove_uploaded(...$paths) {
+    foreach ($paths as $p) {
+        if ($p && strpos($p, 'uploads/ids/') === 0 && strpos($p, '..') === false) { @unlink(__DIR__ . '/../' . $p); }
+    }
+}
+
 // Répare une ancienne table "reservations" (colonnes ou index manquants)
 function ensure_reservations_columns(PDO $pdo) {$needed = [
         'client_nom'          => "VARCHAR(100) DEFAULT NULL",
@@ -65,7 +83,6 @@ function ensure_reservations_columns(PDO $pdo) {$needed = [
         }
     }
     
-    // Modification : Vérifie si un index simple existe déjà, sinon le crée (et nettoie l'ancien index unique si présent)
     $hasIndex =$pdo->query("SHOW INDEX FROM reservations WHERE Column_name = 'car_id'")->rowCount();
     if (!$hasIndex) {
         try { $pdo->exec("ALTER TABLE reservations ADD KEY idx_car_id (car_id)"); } catch (Exception $e) { /* ignoré */ }
@@ -75,13 +92,32 @@ function ensure_reservations_columns(PDO $pdo) {$needed = [
 // Récupération de l'action demandée (en GET ou en POST)
 $action = $_GET['action'] ?? $_POST['action'] ?? '';
 
-// --- 1. CRÉER / ENREGISTRER UNE RÉSERVATION (Depuis le site public ou l'admin) ---
+// --- PROTECTION ADMIN ---
+function require_admin_session() {
+    if (session_status() === PHP_SESSION_NONE) {
+        session_start();
+    }
+    if (!isset($_SESSION['autonems_admin']) || $_SESSION['autonems_admin'] !== true) {
+        http_response_code(401);
+        echo json_encode(['success' => false, 'message' => 'Accès non autorisé. Veuillez vous connecter en tant qu\'administrateur.']);
+        exit;
+    }
+}
+if (in_array($action, ['list', 'update_status', 'set_verified', 'delete'], true)) {
+    require_admin_session();
+}
+
+// --- 1. CRÉER / ENREGISTRER UNE RÉSERVATION OU UNE INSCRIPTION EN ATTENTE ---
 if ($action === 'create') {
-    $car_id           =$_POST['car_id'] ?? null;
-    $client_nom       =$_POST['client_nom'] ?? null;
-    $client_telephone =$_POST['client_telephone'] ?? null;
-    $car_name         =$_POST['car_name'] ?? null;
+    $car_id           = $_POST['car_id'] ?? null;
+    $client_nom       = $_POST['client_nom'] ?? null;
+    $client_telephone = $_POST['client_telephone'] ?? null;
+    $car_name         = $_POST['car_name'] ?? null;
     
+    // Détection si on est en mode "liste_attente" (provenant de script.js)
+    $resMode          = $_POST['mode'] ?? $_POST['statut'] ?? 'En cours';
+    $isWaitingList    = ($resMode === 'liste_attente');
+
     // --- GESTION DE LA DURÉE ET DE L'EXPIRATION EN MILLISECONDES ---
     $duration_hours   = isset($_POST['duration_hours']) ? (int)$_POST['duration_hours'] : null;
     
@@ -90,14 +126,24 @@ if ($action === 'create') {
         $until_ts = (int) round(microtime(true) * 1000) + ($duration_hours * 3600 * 1000);
         $duree_label =$duration_hours >= 24 ? ($duration_hours / 24) . ' jour(s)' :$duration_hours . ' heures';
     } else {
-        $nowForUntil = (int) round(microtime(true) * 1000);$until_ts    = isset($_POST['until_ts']) ? (int)$_POST['until_ts'] : ($nowForUntil + (3 * 24 * 3600 * 1000));$until_ts    = max($nowForUntil + 60000, min($until_ts, $nowForUntil + (30 * 24 * 3600 * 1000)));$duree_label = isset($_POST['duree_label']) ? clean_text($_POST['duree_label'], 100) : null;
+        $nowForUntil = (int) round(microtime(true) * 1000);
+        $until_ts    = isset($_POST['until_ts']) ? (int)$_POST['until_ts'] : ($nowForUntil + (3 * 24 * 3600 * 1000));
+        $until_ts    = max($nowForUntil + 60000, min($until_ts, $nowForUntil + (30 * 24 * 3600 * 1000)));
+        $duree_label = isset($_POST['duree_label']) ? clean_text($_POST['duree_label'], 100) : null;
     }
 
-    $statut           =$_POST['statut'] ?? 'En cours';
-    if (!in_array($statut, ['En cours', 'Confirmée', 'Terminée'], true)) { $statut = 'En cours'; }
-    $en_cours         = ($statut === 'Terminée') ? 0 : 1;
+    $statut = $isWaitingList ? 'liste_attente' : ($_POST['statut'] ?? 'En cours');
+    if (!$isWaitingList && !in_array($statut, ['En cours', 'Confirmée', 'Terminée'], true)) { 
+        $statut = 'En cours'; 
+    }
 
-    // --- RÉCEPTION DES NOUVEAUX CHAMPS (Permis & Paiement) ---
+    if (!$isWaitingList && $statut === 'Confirmée') {
+        echo json_encode(['success' => false, 'message' => "Dossier non vérifié : créez la réservation « En cours de réservation », vérifiez les photos CNI / permis, puis passez-la à « Réservé »."]);
+        exit;
+    }
+    $en_cours = ($statut === 'Terminée') ? 0 : 1;
+
+    // --- RÉCEPTION DES CHAMPS (Permis & Paiement) ---
     $id_card_number   = clean_text($_POST['id_card_number'] ?? null, 50);
     $driver_license   = clean_text($_POST['driver_license'] ?? null, 255);
     $payment_method   = clean_text($_POST['payment_method'] ?? null, 50);
@@ -154,7 +200,6 @@ if ($action === 'create') {
         $fileExtension = strtolower(pathinfo($fileName, PATHINFO_EXTENSION));
 
         $allowedExtensions = ['jpg', 'jpeg', 'png', 'pdf'];
-
         $mimeOk = true;
         if (function_exists('finfo_open')) {
             $finfo = finfo_open(FILEINFO_MIME_TYPE);
@@ -172,14 +217,7 @@ if ($action === 'create') {
                 @mkdir($uploadFileDir, 0755, true);
             }
 
-            $htaccessFile =$uploadFileDir . '.htaccess';
-            if (!file_exists($htaccessFile)) {
-                $rules = "Options -Indexes\n" . '<FilesMatch "\.(php|phtml|phar|php[0-9])$">' . "\n" . "    Require all denied\n</FilesMatch>\n";
-                @file_put_contents($htaccessFile,$rules);
-            }
-
             $dest_path = $uploadFileDir .$newFileName;
-
             if (@move_uploaded_file($fileTmpPath,$dest_path)) {
                 $id_card_path = 'uploads/ids/' .$newFileName;
             }
@@ -194,7 +232,6 @@ if ($action === 'create') {
         $dlFileExtension = strtolower(pathinfo($dlFileName, PATHINFO_EXTENSION));
 
         $allowedExtensions = ['jpg', 'jpeg', 'png', 'pdf'];
-
         $dlMimeOk = true;
         if (function_exists('finfo_open')) {
             $finfo = finfo_open(FILEINFO_MIME_TYPE);
@@ -213,45 +250,107 @@ if ($action === 'create') {
             }
 
             $dest_path = $uploadFileDir .$newDlFileName;
-
             if (@move_uploaded_file($dlTmpPath,$dest_path)) {
                 $driver_license_path = 'uploads/ids/' .$newDlFileName;
             }
         }
     }
 
-    // --- CONTRÔLE SERVEUR (formulaire public) ---
-    // Le site public n'envoie pas de "statut" : dans ce cas, tous les documents sont obligatoires
-    // (un envoi direct à l'API sans passer par le formulaire est donc refusé).
-    if (!isset($_POST['statut'])) {
+    // --- CONTRÔLE DES DOCUMENTS : mêmes règles pour la réservation du site ET pour la liste d'attente ---
+    if ($isWaitingList || !isset($_POST['statut'])) {
         $missing = [];
         if (empty($id_card_number))    { $missing[] = 'numéro de CNI'; }
         if (!$id_card_path)            { $missing[] = 'photo de la CNI (JPG, PNG ou PDF, 5 Mo max)'; }
-        if (empty($driver_license))    { $missing[] = 'numéro de permis'; }
-        if (!$driver_license_path)     { $missing[] = 'photo du permis (JPG, PNG ou PDF, 5 Mo max)'; }
-        if (empty($payment_method))    { $missing[] = 'mode de paiement'; }
+        if (empty($driver_license))    {$missing[] = 'numéro de permis'; }
+        if (!$driver_license_path)     {$missing[] = 'photo du permis (JPG, PNG ou PDF, 5 Mo max)'; }
+        if (empty($payment_method))    {$missing[] = 'mode de paiement'; }
         if ($missing) {
-            if ($id_card_path)         { @unlink(__DIR__ . '/../' . $id_card_path); }
-            if ($driver_license_path)  { @unlink(__DIR__ . '/../' . $driver_license_path); }
+            if ($id_card_path)         { @unlink(__DIR__ . '/../' .$id_card_path); }
+            if ($driver_license_path)  { @unlink(__DIR__ . '/../' .$driver_license_path); }
             echo json_encode(['success' => false, 'message' => 'Informations manquantes ou invalides : ' . implode(', ', $missing) . '.']);
             exit;
         }
 
-        // Cohérence : la CNI et le permis doivent être deux documents différents (numéros et photos)
-        $normCni    = preg_replace('/[^A-Z0-9]/', '', strtoupper((string) $id_card_number));
-        $normPermis = preg_replace('/[^A-Z0-9]/', '', strtoupper((string) $driver_license));
-        $sameNumber = ($normCni !== '' && $normCni === $normPermis);
-        $samePhoto  = ($id_card_path && $driver_license_path
-                       && sha1_file(__DIR__ . '/../' . $id_card_path) === sha1_file(__DIR__ . '/../' . $driver_license_path));
-        if ($sameNumber || $samePhoto) {
-            if ($id_card_path)        { @unlink(__DIR__ . '/../' . $id_card_path); }
-            if ($driver_license_path) { @unlink(__DIR__ . '/../' . $driver_license_path); }
+        $normCni    = preg_replace('/[^A-Z0-9]/', '', strtoupper((string) $id_card_number));$normPermis = preg_replace('/[^A-Z0-9]/', '', strtoupper((string) $driver_license));$sameNumber = ($normCni !== '' &&$normCni === $normPermis);$samePhoto  = ($id_card_path &&$driver_license_path
+                       && sha1_file(__DIR__ . '/../' . $id_card_path) === sha1_file(__DIR__ . '/../' .$driver_license_path));
+        if ($sameNumber ||$samePhoto) {
+            if ($id_card_path)        { @unlink(__DIR__ . '/../' .$id_card_path); }
+            if ($driver_license_path) { @unlink(__DIR__ . '/../' .$driver_license_path); }
             echo json_encode(['success' => false, 'message' => $sameNumber
                 ? 'Le numéro de permis doit être différent du numéro de CNI.'
                 : 'La photo de la CNI et celle du permis doivent être deux documents différents.']);
             exit;
         }
     }
+
+    // --- CAS 1 : SI C'EST UNE INSCRIPTION EN LISTE D'ATTENTE ---
+    if ($isWaitingList) {
+        try {
+            // S'assurer que la table attente existe
+            $pdo->exec("CREATE TABLE IF NOT EXISTS attente (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                car_id VARCHAR(50) NOT NULL,
+                car_name VARCHAR(255) NOT NULL,
+                client_nom VARCHAR(100) NOT NULL,
+                client_telephone VARCHAR(50) NOT NULL,
+                duree_label VARCHAR(100) DEFAULT NULL,
+                until_ts BIGINT DEFAULT NULL,
+                id_card VARCHAR(255) DEFAULT NULL,
+                id_card_number VARCHAR(50) DEFAULT NULL,
+                driver_license VARCHAR(255) DEFAULT NULL,
+                driver_license_file VARCHAR(255) DEFAULT NULL,
+                payment_method VARCHAR(50) DEFAULT NULL,
+                statut VARCHAR(50) DEFAULT 'liste_attente',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                KEY idx_car_id (car_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+
+            // La liste d'attente n'a de sens que si le véhicule est réellement pris par un autre dossier
+            $held = false;
+            if ($pdo->query("SHOW TABLES LIKE 'reservations'")->rowCount() > 0) {
+                ensure_reservations_columns($pdo);
+                $stmtHeld = $pdo->prepare("SELECT id FROM reservations WHERE car_id = ? AND en_cours = 1 AND " . hold_condition() . " LIMIT 1");
+                $stmtHeld->execute([$car_id, (int) round(microtime(true) * 1000)]);
+                $held = (bool) $stmtHeld->fetch();
+            }
+            if (!$held) {
+                remove_uploaded($id_card_path, $driver_license_path);
+                echo json_encode(['success' => false, 'message' => 'Ce véhicule est disponible actuellement : vous pouvez le réserver directement.']);
+                exit;
+            }
+
+            // Pas d'inscription en double (même téléphone, même véhicule)
+            $digits = preg_replace('/\D+/', '', (string) $client_telephone);
+            $stmtDup = $pdo->prepare("SELECT client_telephone FROM attente WHERE car_id = ?");
+            $stmtDup->execute([$car_id]);
+            foreach ($stmtDup->fetchAll() as $d) {
+                if ($digits !== '' && preg_replace('/\D+/', '', (string) $d['client_telephone']) === $digits) {
+                    remove_uploaded($id_card_path, $driver_license_path);
+                    echo json_encode(['success' => false, 'message' => 'Vous êtes déjà inscrit(e) en liste d\'attente pour ce véhicule.']);
+                    exit;
+                }
+            }
+
+            $stmtAttente = $pdo->prepare("INSERT INTO attente (car_id, car_name, client_nom, client_telephone, duree_label, until_ts, id_card, id_card_number, driver_license, driver_license_file, payment_method, statut) 
+                                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            $stmtAttente->execute([
+                $car_id, $car_name, $client_nom, $client_telephone, $duree_label, $until_ts, 
+                $id_card_path, $id_card_number, $driver_license, $driver_license_path, $payment_method, $statut
+            ]);
+
+            $stmtRank = $pdo->prepare("SELECT COUNT(*) FROM attente WHERE car_id = ?");
+            $stmtRank->execute([$car_id]);
+            $rang = (int) $stmtRank->fetchColumn();
+            echo json_encode(['success' => true, 'rang' => $rang,
+                'message' => 'Inscription en liste d\'attente enregistrée avec succès ! Vous êtes n°' . $rang . ' pour ce véhicule.']);
+        } catch (Exception $e) {
+            remove_uploaded($id_card_path, $driver_license_path);
+            echo json_encode(['success' => false, 'message' => 'Erreur lors de l\'enregistrement en liste d\'attente : ' . $e->getMessage()]);
+        }
+        exit;
+    }
+
+    // --- CAS 2 : RÉSERVATION CLASSIQUE (Table reservations) ---
 
     try {
         $pdo->exec("CREATE TABLE IF NOT EXISTS reservations (
@@ -281,7 +380,7 @@ if ($action === 'create') {
         $pdo->beginTransaction();
 
         $nowCheck  = (int) round(microtime(true) * 1000);
-        $stmtCheck =$pdo->prepare("SELECT id FROM reservations WHERE car_id = ? AND en_cours = 1 AND until_ts > ? FOR UPDATE");
+        $stmtCheck =$pdo->prepare("SELECT id FROM reservations WHERE car_id = ? AND en_cours = 1 AND " . hold_condition() . " FOR UPDATE");
         $stmtCheck->execute([$car_id,$nowCheck]);
         if ($stmtCheck->fetch()) {$pdo->rollBack();
             if ($id_card_path) { @unlink(__DIR__ . '/../' .$id_card_path); }
@@ -290,16 +389,12 @@ if ($action === 'create') {
             exit;
         }
 
-        // Modification : Insertion simple sans ON DUPLICATE KEY UPDATE pour conserver l'historique complet
         $stmt =$pdo->prepare("INSERT INTO reservations (car_id, client_nom, client_telephone, car_name, until_ts, duree_label, id_card, id_card_number, driver_license, driver_license_file, payment_method, en_cours, statut) 
                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
                                
-        $stmt->execute([
-            $car_id,$client_nom, $client_telephone,$car_name, $until_ts,$duree_label, $id_card_path,$id_card_number, $driver_license, $driver_license_path,$payment_method, $en_cours,$statut
+        $stmt->execute([$car_id,$client_nom,$client_telephone,$car_name,$until_ts,$duree_label,$id_card_path,$id_card_number,$driver_license, $driver_license_path,$payment_method, $en_cours,$statut
         ]);
 
-        // "En cours de réservation" : on ne touche pas à "dispo" (le site affiche l'état via la table reservations).
-        // "Réservé" (Confirmée) => véhicule indisponible ; "Terminée" => véhicule libéré.
         if ($statut === 'Confirmée' || $statut === 'Terminée') {
             $stmtUpdateCar =$pdo->prepare("UPDATE vehicles SET dispo = ? WHERE LOWER(REPLACE(nom, ' ', '-')) = ? OR nom = ?");
             $stmtUpdateCar->execute([$statut === 'Confirmée' ? 0 : 1, $car_id,$car_name]);
@@ -309,8 +404,7 @@ if ($action === 'create') {
 
         echo json_encode(['success' => true, 'message' => 'Réservation enregistrée avec succès !']);
     } catch (Exception $e) {
-        if ($pdo->inTransaction()) {$pdo->rollBack();
-        }
+        if ($pdo->inTransaction()) {$pdo->rollBack(); }
         echo json_encode(['success' => false, 'message' => 'Erreur lors de l\'enregistrement : ' . $e->getMessage()]);
     }
     exit;
@@ -325,10 +419,12 @@ if ($action === 'list') {
             exit;
         }
 
-        $stmt =$pdo->query("SELECT * FROM reservations ORDER BY id DESC");
+        $stmt =$pdo->query("SELECT *, UNIX_TIMESTAMP(created_at) * 1000 AS created_ms FROM reservations ORDER BY id DESC");
         $reservations =$stmt->fetchAll();
 
         foreach ($reservations as &$r) {$r['en_cours'] = isset($r['en_cours']) ? (bool)$r['en_cours'] : true;
+            $r['hold_until']   = (int) ($r['created_ms'] ?? 0) + RESERVATION_HOLD_MS;
+            $r['hold_expired'] =$r['en_cours'] && (($r['statut'] ?: 'En cours') === 'En cours') &&$r['hold_until'] < (int) round(microtime(true) * 1000);
         }
 
         echo json_encode(['success' => true, 'reservations' => $reservations]);
@@ -338,20 +434,20 @@ if ($action === 'list') {
     exit;
 }
 
-// --- LISTE PUBLIQUE (site client) : uniquement l'état des véhicules, aucune donnée personnelle ---
+// --- LISTE PUBLIQUE (site client) ---
 if ($action === 'public_list') {
     try {
         $out = [];
         if ($pdo->query("SHOW TABLES LIKE 'reservations'")->rowCount() > 0) {
             $now  = (int) round(microtime(true) * 1000);
-            $stmt = $pdo->prepare("SELECT car_id, car_name, until_ts, statut FROM reservations
-                                   WHERE en_cours = 1 AND until_ts > ? ORDER BY id ASC");
+            $stmt =$pdo->prepare("SELECT car_id, car_name, until_ts, statut, UNIX_TIMESTAMP(created_at) * 1000 AS created_ms FROM reservations
+                                   WHERE en_cours = 1 AND " . hold_condition() . " ORDER BY id ASC");
             $stmt->execute([$now]);
-            foreach ($stmt->fetchAll() as $r) {
+            foreach ($stmt->fetchAll() as$r) {
                 $out[$r['car_id']] = [
                     'car'     => $r['car_name'],
                     'carName' => $r['car_name'],
-                    'until'   => (int) $r['until_ts'],
+                    'until'   => (($r['statut'] ?: 'En cours') === 'Confirmée') ? (int) $r['until_ts'] : ((int)$r['created_ms'] + RESERVATION_HOLD_MS),
                     'statut'  => $r['statut'] ?: 'En cours'
                 ];
             }
@@ -363,58 +459,109 @@ if ($action === 'public_list') {
     exit;
 }
 
-// --- MODIFIER LE STATUT D'UNE RÉSERVATION (admin) : En cours de réservation -> Réservé -> Terminée ---
+// --- MODIFIER LE STATUT D'UNE RÉSERVATION (admin) ---
 if ($action === 'update_status') {
-    $id     = $_POST['id'] ?? null;
-    $statut = $_POST['statut'] ?? '';
+    $id     =$_POST['id'] ?? null;
+    $statut =$_POST['statut'] ?? '';
     if (empty($id) || !in_array($statut, ['En cours', 'Confirmée', 'Terminée'], true)) {
         echo json_encode(['success' => false, 'message' => 'Réservation ou statut invalide.']);
         exit;
     }
 
     try {
+        if ($statut === 'Confirmée') {
+            $chk =$pdo->prepare("SELECT * FROM reservations WHERE id = ?");
+            $chk->execute([$id]);
+            $row =$chk->fetch();
+            if ($row && (int) ($row['verified'] ?? 0) !== 1 && ($row['statut'] ?? '') !== 'Confirmée') {
+                echo json_encode(['success' => false, 'message' => "Dossier non vérifié : vérifiez les photos CNI / permis puis cliquez sur « Marquer comme vérifié » avant de passer la réservation à « Réservé »."]);
+                exit;
+            }
+        }
+
         $pdo->beginTransaction();
 
-        $stmtGet = $pdo->prepare("SELECT car_id, car_name FROM reservations WHERE id = ? FOR UPDATE");
+        $stmtGet =$pdo->prepare("SELECT car_id, car_name, statut, until_ts, UNIX_TIMESTAMP(created_at) * 1000 AS created_ms FROM reservations WHERE id = ? FOR UPDATE");
         $stmtGet->execute([$id]);
-        $resData = $stmtGet->fetch();
-        if (!$resData) {
-            $pdo->rollBack();
+        $resData =$stmtGet->fetch();
+        if (!$resData) {$pdo->rollBack();
             echo json_encode(['success' => false, 'message' => 'Réservation introuvable.']);
             exit;
         }
 
         $en_cours = ($statut === 'Terminée') ? 0 : 1;
-        $stmt = $pdo->prepare("UPDATE reservations SET statut = ?, en_cours = ? WHERE id = ?");
-        $stmt->execute([$statut, $en_cours, $id]);
 
-        // Réservé (Confirmée) => véhicule indisponible ; sinon => véhicule libéré
-        $stmtCar = $pdo->prepare("UPDATE vehicles SET dispo = ? WHERE LOWER(REPLACE(nom, ' ', '-')) = ? OR nom = ?");
-        $stmtCar->execute([$statut === 'Confirmée' ? 0 : 1, $resData['car_id'], $resData['car_name']]);
+        if ($statut === 'Confirmée' && ($resData['statut'] ?? '') !== 'Confirmée') {
+            $nowMs = (int) round(microtime(true) * 1000);
+            $stmtConf =$pdo->prepare("SELECT id, client_nom, statut FROM reservations WHERE car_id = ? AND id <> ? AND en_cours = 1 AND " . hold_condition() . " LIMIT 1 FOR UPDATE");
+            $stmtConf->execute([$resData['car_id'], $id,$nowMs]);
+            $other =$stmtConf->fetch();
+            if ($other) {$pdo->rollBack();
+                $otherLabel = (($other['statut'] ?: 'En cours') === 'Confirmée') ? 'Réservé' : 'En cours de réservation';
+                echo json_encode(['success' => false, 'message' => "Impossible : ce véhicule est déjà pris par un autre dossier (n°" . $other['id'] . " — " . ($other['client_nom'] ?: 'client') . ", " . $otherLabel . "). Passez d'abord ce dossier à « Terminée »."], JSON_UNESCAPED_UNICODE);
+                exit;
+            }
+        }
+
+        // --- INTÉGRATION DE L'ARCHIVAGE AUTOMATIQUE ET DU DÉBLOQUAGE DU VÉHICULE ---
+        if ($statut === 'Terminée') {
+            // 1. Copie de la ligne vers la table historique
+            $stmtArchive =$pdo->prepare("INSERT INTO historique SELECT * FROM reservations WHERE id = ?");
+            $stmtArchive->execute([$id]);
+
+            // 2. Suppression de la table active pour libérer définitivement le car_id (évite l'erreur 1062)
+            $stmtDel =$pdo->prepare("DELETE FROM reservations WHERE id = ?");
+            $stmtDel->execute([$id]);
+
+            // 3. Forcer la remise à disposition immédiate du véhicule (dispo = 1)
+            $stmtCar =$pdo->prepare("UPDATE vehicles SET dispo = 1 WHERE LOWER(REPLACE(nom, ' ', '-')) = ? OR nom = ?");
+            $stmtCar->execute([$resData['car_id'],$resData['car_name']]);
+        } else {
+            // Logique standard pour "En cours" ou "Confirmée"
+            $newUntilTs = null;
+            if ($statut === 'Confirmée' && ($resData['statut'] ?? '') !== 'Confirmée') {
+                $dureeMs = (int) $resData['until_ts'] - (int)$resData['created_ms'];
+                $dureeMs = (int) (round($dureeMs / 60000) * 60000);
+                $dureeMs = max(60000, min($dureeMs, 720 * 3600 * 1000));
+                $newUntilTs = (int) round(microtime(true) * 1000) +$dureeMs;
+            }
+
+            if ($newUntilTs !== null) {
+                $stmt =$pdo->prepare("UPDATE reservations SET statut = ?, en_cours = ?, until_ts = ? WHERE id = ?");
+                $stmt->execute([$statut,$en_cours, $newUntilTs,$id]);
+            } else {
+                $stmt =$pdo->prepare("UPDATE reservations SET statut = ?, en_cours = ? WHERE id = ?");
+                $stmt->execute([$statut, $en_cours,$id]);
+            }
+
+            // Mettre à jour la disponibilité du véhicule (0 si Confirmée, 1 sinon)
+            $stmtCar =$pdo->prepare("UPDATE vehicles SET dispo = ? WHERE LOWER(REPLACE(nom, ' ', '-')) = ? OR nom = ?");
+            $stmtCar->execute([$statut === 'Confirmée' ? 0 : 1, $resData['car_id'],$resData['car_name']]);
+        }
 
         $pdo->commit();
 
-        echo json_encode(['success' => true, 'message' => 'Statut mis à jour.']);
+        echo json_encode(['success' => true, 'message' => 'Statut mis à jour avec succès.']);
     } catch (Exception $e) {
-        if ($pdo->inTransaction()) { $pdo->rollBack(); }
+        if ($pdo->inTransaction()) {$pdo->rollBack(); }
         echo json_encode(['success' => false, 'message' => 'Erreur lors de la mise à jour : ' . $e->getMessage()]);
     }
     exit;
 }
 
-// --- MARQUER UN DOSSIER COMME VÉRIFIÉ / À VÉRIFIER (admin : contrôle visuel des photos CNI et permis) ---
+// --- MARQUER UN DOSSIER COMME VÉRIFIÉ / À VÉRIFIER ---
 if ($action === 'set_verified') {
-    $id       = $_POST['id'] ?? null;
-    $verified = (isset($_POST['verified']) && $_POST['verified'] == '1') ? 1 : 0;
+    $id       =$_POST['id'] ?? null;
+    $verified = (isset($_POST['verified']) &&$_POST['verified'] == '1') ? 1 : 0;
     if (empty($id)) {
         echo json_encode(['success' => false, 'message' => 'ID de réservation manquant.']);
         exit;
     }
 
     try {
-        ensure_reservations_columns($pdo); // ajoute les colonnes verified / verified_at si elles n'existent pas encore
-        $stmt = $pdo->prepare("UPDATE reservations SET verified = ?, verified_at = " . ($verified ? "NOW()" : "NULL") . " WHERE id = ?");
-        $stmt->execute([$verified, $id]);
+        ensure_reservations_columns($pdo);
+        $stmt =$pdo->prepare("UPDATE reservations SET verified = ?, verified_at = " . ($verified ? "NOW()" : "NULL") . " WHERE id = ?");
+        $stmt->execute([$verified,$id]);
         echo json_encode(['success' => true, 'message' => $verified ? 'Dossier marqué comme vérifié.' : 'Vérification annulée.']);
     } catch (Exception $e) {
         echo json_encode(['success' => false, 'message' => 'Erreur lors de la mise à jour : ' . $e->getMessage()]);
@@ -422,7 +569,7 @@ if ($action === 'set_verified') {
     exit;
 }
 
-// --- 3. SUPPRIMER UNE RÉSERVATION (Pour le tableau de bord admin) ---
+// --- 3. SUPPRIMER UNE RÉSERVATION ---
 if ($action === 'delete') {
     $id =$_POST['id'] ?? null;
     if (empty($id)) {
@@ -451,8 +598,7 @@ if ($action === 'delete') {
 
         echo json_encode(['success' => true, 'message' => 'Réservation supprimée et véhicule libéré.']);
     } catch (Exception $e) {
-        if ($pdo->inTransaction()) {$pdo->rollBack();
-        }
+        if ($pdo->inTransaction()) {$pdo->rollBack(); }
         echo json_encode(['success' => false, 'message' => 'Erreur lors de la suppression : ' . $e->getMessage()]);
     }
     exit;

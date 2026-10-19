@@ -142,6 +142,9 @@
                 </div>
                 <h4 class="modal-subtitle">Réserver ce véhicule</h4>
                 <form id="reservationForm" enctype="multipart/form-data" novalidate>
+                    <!-- MODIFICATION : Champ caché pour transmettre dynamiquement le statut « liste_attente » ou « En cours » -->
+                    <input type="hidden" id="resMode" name="statut" value="En cours">
+
                     <div class="form-group">
                         <label for="resName">Nom et Prénoms :</label>
                         <input type="text" id="resName" name="client_nom" placeholder="Ex: Kouassi Jean" autocomplete="off" required>

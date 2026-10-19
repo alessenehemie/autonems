@@ -1,7 +1,6 @@
 <?php
 // api/sales.php — Gère l'enregistrement et la liste des voitures vendues
 header('Content-Type: application/json; charset=utf-8');
-header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type');
 
@@ -64,11 +63,15 @@ function save_uploaded_doc(array $keys, $prefix) {
     return null;
 }
 
-// Ajoute les colonnes "verified" / "verified_at" si la table "sales" existe déjà sans elles
+// Ajoute les colonnes "verified" / "verified_at" / "statut" si la table "sales" existe déjà sans elles.
+// Statut : 'en_cours' = achat en cours (véhicule bloqué sur le site) ; 'achete' = vente conclue.
+// Les anciennes lignes (ventes déjà enregistrées avant cette mise à jour) reçoivent 'achete' par défaut.
 function ensure_sales_columns(PDO $pdo) {
+    if ($pdo->query("SHOW TABLES LIKE 'sales'")->rowCount() == 0) return;
     $needed = [
         'verified'    => "TINYINT(1) NOT NULL DEFAULT 0",
         'verified_at' => "DATETIME NULL DEFAULT NULL",
+        'statut'      => "VARCHAR(20) NOT NULL DEFAULT 'achete'",
     ];
     foreach ($needed as $col => $definition) {
         $exists = $pdo->query("SHOW COLUMNS FROM sales LIKE '" . $col . "'")->rowCount();
@@ -78,7 +81,54 @@ function ensure_sales_columns(PDO $pdo) {
     }
 }
 
+// Même règle que slugify() de script.js / purchase-status.js : sert de clé pour relier une vente à la carte du véhicule
+function slugify_name($text) {
+    $t = mb_strtolower((string) $text, 'UTF-8');
+    if (class_exists('Normalizer')) {
+        $n = Normalizer::normalize($t, Normalizer::FORM_D);
+        if ($n !== false) { $t = $n; }
+        $t = preg_replace('/[\x{0300}-\x{036f}]/u', '', $t);
+    } else {
+        $c = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $t);
+        if ($c !== false) { $t = preg_replace('/[`\'^"~]/', '', $c); }
+    }
+    $t = preg_replace('/[\s\x{00A0}\x{2000}-\x{200B}\x{202F}\x{3000}]+/u', '-', $t);
+    $t = preg_replace('/[^a-z0-9_\-]+/', '', $t);
+    return preg_replace('/-{2,}/', '-', $t);
+}
+
+// Ce véhicule est-il déjà "en cours d'achat" par un autre client ?
+function purchase_in_progress(PDO $pdo, $car_name) {
+    try {
+        ensure_sales_columns($pdo);
+        $slug = slugify_name($car_name);
+        foreach ($pdo->query("SELECT car_name FROM sales WHERE statut = 'en_cours'") as $row) {
+            if (slugify_name($row['car_name']) === $slug) return true;
+        }
+    } catch (Exception $e) { /* table absente : rien en cours */ }
+    return false;
+}
+
 $action = $_GET['action'] ?? $_POST['action'] ?? '';
+
+// --- PROTECTION ADMIN (même session que booking.php / attente.php) ---
+function require_admin_session() {
+    if (session_status() === PHP_SESSION_NONE) {
+        session_start();
+    }
+    if (!isset($_SESSION['autonems_admin']) || $_SESSION['autonems_admin'] !== true) {
+        http_response_code(401);
+        echo json_encode(['success' => false, 'message' => 'Accès non autorisé. Veuillez vous connecter en tant qu\'administrateur.']);
+        exit;
+    }
+}
+// Publiques : "create" depuis le formulaire d'achat du site (envoie car_details) et "public_list".
+// Tout le reste (liste avec CNI/permis, vérification, statut, suppression, enregistrement manuel) est réservé à l'admin.
+if (in_array($action, ['list', 'set_verified', 'set_statut', 'delete'], true)
+    || ($action === 'create' && !isset($_POST['car_details']))) {
+    require_admin_session();
+}
+
 
 // --- 1. ENREGISTRER UNE VENTE ---
 if ($action === 'create') {
@@ -103,6 +153,13 @@ if ($action === 'create') {
 
     if (empty($buyer_nom) || empty($buyer_telephone) || empty($car_name)) {
         echo json_encode(['success' => false, 'message' => 'Veuillez remplir les informations obligatoires (nom, téléphone, véhicule).']);
+        exit;
+    }
+
+    // Un seul client à la fois : si le véhicule est déjà "en cours d'achat", on refuse (avant tout enregistrement de photos)
+    if (isset($_POST['car_details']) && purchase_in_progress($pdo, $car_name)) {
+        echo json_encode(['success' => false, 'code' => 'ALREADY_PURCHASING',
+            'message' => "Ce véhicule est déjà en cours d'achat par un autre client."]);
         exit;
     }
 
@@ -158,10 +215,16 @@ if ($action === 'create') {
             driver_license_path VARCHAR(255) DEFAULT NULL,
             verified TINYINT(1) NOT NULL DEFAULT 0,
             verified_at DATETIME NULL DEFAULT NULL,
+            statut VARCHAR(20) NOT NULL DEFAULT 'achete',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )");
 
-        $stmt = $pdo->prepare("INSERT INTO sales (car_name, car_details, buyer_nom, buyer_telephone, sale_price, payment_method, id_card_number, driver_license_number, id_card_path, driver_license_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        ensure_sales_columns($pdo); // table créée avant cette mise à jour : ajoute "statut" si besoin
+
+        // Formulaire d'achat du site -> "en cours d'achat" (véhicule bloqué). Enregistrement manuel depuis le tableau de bord -> déjà vendu.
+        $statut = isset($_POST['car_details']) ? 'en_cours' : 'achete';
+
+        $stmt = $pdo->prepare("INSERT INTO sales (car_name, car_details, buyer_nom, buyer_telephone, sale_price, payment_method, id_card_number, driver_license_number, id_card_path, driver_license_path, statut) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
         
         $stmt->execute([
             $car_name, 
@@ -173,7 +236,8 @@ if ($action === 'create') {
             $id_card_number, 
             $driver_license_number, 
             $idCardPath, 
-            $driverLicensePath
+            $driverLicensePath,
+            $statut
         ]);
 
         echo json_encode(['success' => true, 'message' => 'Vente et documents enregistrés avec succès !']);
@@ -192,12 +256,64 @@ if ($action === 'list') {
             exit;
         }
 
+        ensure_sales_columns($pdo);
         $stmt = $pdo->query("SELECT * FROM sales ORDER BY id DESC");
         $sales = $stmt->fetchAll();
 
         echo json_encode(['success' => true, 'sales' => $sales]);
     } catch (Exception $e) {
         echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+    }
+    exit;
+}
+
+// --- LISTE PUBLIQUE DES VÉHICULES "EN COURS D'ACHAT" (lue par purchase-status.js : aucune donnée personnelle) ---
+if ($action === 'public_list') {
+    header('Cache-Control: no-store');
+    $purchases = [];
+    try {
+        ensure_sales_columns($pdo);
+        if ($pdo->query("SHOW TABLES LIKE 'sales'")->rowCount() > 0) {
+            foreach ($pdo->query("SELECT car_name FROM sales WHERE statut = 'en_cours'") as $row) {
+                $slug = slugify_name($row['car_name']);
+                if ($slug !== '') { $purchases[$slug] = ['statut' => 'en_cours']; }
+            }
+        }
+        echo json_encode(['success' => true, 'purchases' => (object) $purchases]);
+    } catch (Exception $e) {
+        echo json_encode(['success' => false]);
+    }
+    exit;
+}
+
+// --- CHANGER LE STATUT D'UNE VENTE : 'en_cours' (en cours d'achat) / 'achete' (acheté) ---
+// "Acheté" n'est possible que si l'admin a d'abord marqué le dossier comme vérifié.
+if ($action === 'set_statut') {
+    $id     = $_POST['id'] ?? null;
+    $statut = $_POST['statut'] ?? '';
+    if (empty($id) || !in_array($statut, ['en_cours', 'achete'], true)) {
+        echo json_encode(['success' => false, 'message' => 'Paramètres invalides.']);
+        exit;
+    }
+
+    try {
+        ensure_sales_columns($pdo);
+        $stmt = $pdo->prepare("SELECT id, car_name, verified FROM sales WHERE id = ?");
+        $stmt->execute([$id]);
+        $sale = $stmt->fetch();
+        if (!$sale) {
+            echo json_encode(['success' => false, 'message' => 'Vente introuvable.']);
+            exit;
+        }
+        if ($statut === 'achete' && (int) $sale['verified'] !== 1) {
+            echo json_encode(['success' => false, 'message' => "Dossier non vérifié : vérifiez la CNI et le permis avant de passer à « Acheté »."]);
+            exit;
+        }
+        $upd = $pdo->prepare("UPDATE sales SET statut = ? WHERE id = ?");
+        $upd->execute([$statut, $id]);
+        echo json_encode(['success' => true, 'message' => 'Statut mis à jour.', 'car_name' => $sale['car_name']]);
+    } catch (Exception $e) {
+        echo json_encode(['success' => false, 'message' => 'Erreur lors de la mise à jour : ' . $e->getMessage()]);
     }
     exit;
 }

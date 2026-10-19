@@ -210,7 +210,7 @@ function carteHTML(v, reservations, index) {
             </div>
             <div class="card-actions">
                 ${isReservedNow
-                    ? `<button type="button" class="btn-full btn-reserve is-locked" disabled aria-disabled="true" title="Véhicule indisponible pendant la réservation" onclick="event.stopPropagation()">Réserver</button>
+                    ? `<button type="button" class="btn-full btn-reserve" data-id="${v.id}" onclick="event.stopPropagation()" style="background:#d97706;">Liste d'attente</button>
                        <span class="btn-full btn-acheter-card is-locked" role="link" aria-disabled="true" title="Véhicule indisponible pendant la réservation" onclick="event.stopPropagation()">Acheter</span>`
                     : `<button type="button" class="btn-full btn-reserve" data-id="${v.id}" onclick="event.stopPropagation()">Réserver</button>
                        <a href="${lienAchat(v)}" class="btn-full btn-acheter-card" onclick="event.stopPropagation()">Acheter</a>`}
@@ -327,17 +327,27 @@ function openModal(id) {
     document.getElementById('modalPriceVente').textContent = fmt(v.vente);
     const modalReserveBtn = document.getElementById('modalReserveBtn');
     const modalAchatBtn = document.getElementById('modalAchatBtn');
-    const locked = !!reservation;
-    modalReserveBtn.disabled = locked;
-    modalReserveBtn.classList.toggle('is-locked', locked);
-    modalAchatBtn.classList.toggle('is-locked', locked);
-    modalAchatBtn.setAttribute('aria-disabled', String(locked));
-    if (locked) {
-        modalReserveBtn.onclick = null;
+    
+    if (reservation) {
+        modalReserveBtn.disabled = false;
+        modalReserveBtn.classList.remove('is-locked');
+        modalReserveBtn.style.background = "#d97706";
+        modalReserveBtn.textContent = "📝 S'inscrire sur la liste d'attente";
+        modalReserveBtn.onclick = () => { closeModal(); openReservationModal(v.id, true); };
+
+        modalAchatBtn.classList.add('is-locked');
+        modalAchatBtn.setAttribute('aria-disabled', 'true');
         modalAchatBtn.removeAttribute('href');
         modalAchatBtn.onclick = (e) => e.preventDefault();
     } else {
-        modalReserveBtn.onclick = () => { closeModal(); openReservationModal(v.id); };
+        modalReserveBtn.disabled = false;
+        modalReserveBtn.classList.remove('is-locked');
+        modalReserveBtn.style.background = "";
+        modalReserveBtn.textContent = "Réserver ce véhicule";
+        modalReserveBtn.onclick = () => { closeModal(); openReservationModal(v.id, false); };
+
+        modalAchatBtn.classList.remove('is-locked');
+        modalAchatBtn.setAttribute('aria-disabled', 'false');
         modalAchatBtn.href = lienAchat(v);
         modalAchatBtn.onclick = null;
     }
@@ -345,10 +355,10 @@ function openModal(id) {
     if (reservation && reservation.statut === 'Confirmée') {
         const remaining = formatRemaining(reservation.until - Date.now());
         document.getElementById('modalTimer').hidden = false;
-        document.getElementById('modalTimer').textContent = `⏱ Ce véhicule est réservé (expire dans ${remaining}).`;
+        document.getElementById('modalTimer').textContent = `⏱ Ce véhicule est réservé (expire dans ${remaining}). Vous pouvez vous inscrire en liste d'attente.`;
     } else if (reservation) {
         document.getElementById('modalTimer').hidden = false;
-        document.getElementById('modalTimer').textContent = `Ce véhicule est actuellement en cours de réservation.`;
+        document.getElementById('modalTimer').textContent = `Ce véhicule est actuellement en cours de réservation. Vous pouvez vous inscrire en liste d'attente.`;
     } else {
         document.getElementById('modalTimer').hidden = true;
     }
@@ -368,7 +378,14 @@ function attachCardEvents() {
         btn.addEventListener('click', (e) => { e.stopPropagation(); openModal(btn.dataset.id); });
     });
     document.querySelectorAll('.btn-reserve').forEach(btn => {
-        btn.addEventListener('click', (e) => { e.stopPropagation(); openReservationModal(btn.dataset.id); });
+        btn.addEventListener('click', (e) => { 
+            e.stopPropagation(); 
+            const carId = btn.dataset.id;
+            const reservations = activeReservations();
+            const v = VEHICLES.find(x => x.id === carId);
+            const isWaiting = v && !!getReservation(reservations, v);
+            openReservationModal(carId, isWaiting); 
+        });
     });
 }
 
@@ -403,16 +420,9 @@ const reservationModal = document.getElementById('reservationModal');
 let reservationCarId = null;
 const resValidState = { name: false, phone: false, duration: false, idCard: false, identity: false, license: false, licenseFile: false };
 
-function openReservationModal(id) {
+function openReservationModal(id, isWaitingList = false) {
     const v = VEHICLES.find(x => x.id === id);
     if (!v) return;
-
-    // PROTECTION : Bloque l'ouverture si le véhicule est déjà réservé
-    const reservations = activeReservations();
-    if (getReservation(reservations, v)) {
-        alert("Désolé, ce véhicule est actuellement réservé ou en cours de réservation et ne peut pas être sélectionné.");
-        return;
-    }
 
     reservationCarId = id;
     warmUpOcr(); // précharge le moteur de lecture des photos pendant que le client remplit le formulaire
@@ -420,6 +430,17 @@ function openReservationModal(id) {
     document.getElementById('resCarName').textContent = v.nom;
     document.getElementById('resCarPrice').textContent = fmt(v.loc) + ' / jour';
     document.getElementById('resCarImg').src = v.img;
+
+    const modeInput = document.getElementById('resMode');
+    const subtitle = document.querySelector('#reservationModal .modal-subtitle');
+    if (modeInput) {
+        modeInput.value = isWaitingList ? 'liste_attente' : 'En cours';
+    }
+    if (subtitle) {
+        subtitle.textContent = isWaitingList 
+            ? "Inscription en liste d'attente (Véhicule actuellement réservé)" 
+            : "Réserver ce véhicule";
+    }
 
     // Reset du formulaire
     ['resName', 'resPhone', 'idCard', 'resIdentityDoc', 'driverLicense', 'driverLicenseFile', 'paymentMethod'].forEach(fid => {
@@ -967,6 +988,8 @@ function handleReservationSubmit(e) {
     formData.append('duree_label', durationLabel);
     formData.append('duration_hours', durationHours);
 
+    const isWaiting = document.getElementById('resMode') && document.getElementById('resMode').value === 'liste_attente';
+
     // Envoi des données en arrière-plan vers api/booking.php
     fetch('api/booking.php', {
         method: 'POST',
@@ -984,16 +1007,27 @@ function handleReservationSubmit(e) {
         console.error("Erreur réseau lors de l'enregistrement de la réservation :", err);
     });
 
-    const texte = `Bonjour AutoNems, je souhaite réserver ce véhicule :\n\n` +
-        `Véhicule : ${v.nom} (${v.an})\n` +
-        `Prix : ${fmt(v.loc)} / jour\n` +
-        `Nom : ${name}\n` +
-        `Téléphone : ${phone}\n` +
-        `Durée de réservation : ${durationLabel}`;
+    let texte = "";
+    if (isWaiting) {
+        texte = `Bonjour AutoNems, je m'inscris en LISTE D'ATTENTE pour ce véhicule :\n\n` +
+            `Véhicule : ${v.nom} (${v.an})\n` +
+            `Nom : ${name}\n` +
+            `Téléphone : ${phone}\n` +
+            `Si la réservation en cours expire, merci de me contacter en priorité !`;
+    } else {
+        texte = `Bonjour AutoNems, je souhaite réserver ce véhicule :\n\n` +
+            `Véhicule : ${v.nom} (${v.an})\n` +
+            `Prix : ${fmt(v.loc)} / jour\n` +
+            `Nom : ${name}\n` +
+            `Téléphone : ${phone}\n` +
+            `Durée de réservation : ${durationLabel}`;
+    }
+
     window.open(`https://wa.me/${PHONE_NUMBER}?text=${encodeURIComponent(texte)}`, '_blank');
 
-    document.getElementById('resConfirmText').textContent =
-        `Votre demande de réservation pour la ${v.nom} est enregistrée pour ${durationLabel}. Le véhicule est maintenant affiché "En cours de réservation" sur le site. Un conseiller vous contacte sur WhatsApp pour confirmer.`;
+    document.getElementById('resConfirmText').textContent = isWaiting
+        ? `Votre inscription en liste d'attente pour le ${v.nom} est enregistrée. Si le premier client se désiste, nous vous contacterons en priorité.`
+        : `Votre demande de réservation pour la ${v.nom} est enregistrée pour ${durationLabel}. Le véhicule est maintenant affiché "En cours de réservation" sur le site. Un conseiller vous contacte sur WhatsApp pour confirmer.`;
     document.getElementById('resBuyYesBtn').href = lienAchat(v);
     document.getElementById('resStepForm').hidden = true;
     document.getElementById('resStepConfirm').hidden = false;
