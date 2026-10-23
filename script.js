@@ -117,6 +117,23 @@ const fmt = n => Number(n || 0).toLocaleString("fr-FR").replace(/\u202f|\u00a0/g
 /* Échappe le texte venant de la base avant de l'injecter dans le HTML (anti-XSS) */
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
+/* ---------- File d'attente : nombre de clients en attente par véhicule (api/booking.php?action=public_queue) ---------- */
+let waitingCounts = {};
+function queueCount(v) {
+    return Number(waitingCounts[v.id] || waitingCounts[slugify(v.nom)] || 0);
+}
+async function loadWaitingCounts() {
+    try {
+        const res = await fetch('api/booking.php?action=public_queue');
+        const data = await res.json();
+        const next = (data && typeof data === 'object' && !data.error) ? data : {};
+        if (JSON.stringify(next) !== JSON.stringify(waitingCounts)) {
+            waitingCounts = next;
+            renderFleet(currentFilteredList());
+        }
+    } catch (e) { /* silencieux : le site reste utilisable sans cette info */ }
+}
+
 /* ---------- Réservations en direct (alimentées par ReservationStore) ---------- */
 let liveReservations = {};
 function activeReservations() {
@@ -158,7 +175,8 @@ function formatRemaining(ms) {
 
 /* Libellé + classe du badge : "En cours de réservation" (en attente de validation admin),
    "Réservé" (confirmé par l'admin) ou "Disponible" */
-function reservationBadge(reservation, dispoFinal) {
+function reservationBadge(reservation, dispoFinal, queued = 0) {
+    if (!reservation && queued > 0) return { label: "En file d'attente", cls: 'badge-reserve badge-pending' };
     if (reservation && reservation.statut !== 'Confirmée') return { label: 'En cours de réservation', cls: 'badge-reserve badge-pending' };
     if (!dispoFinal) return { label: 'Réservé', cls: 'badge-reserve' };
     return { label: 'Disponible', cls: '' };
@@ -175,8 +193,10 @@ function lienAchat(v) {
 function carteHTML(v, reservations, index) {
     const reservation = getReservation(reservations, v);
     const isReservedNow = !!reservation;
-    const dispoFinal = v.dispo && !isReservedNow;
-    const badgeInfo = reservationBadge(reservation, dispoFinal);
+    const queued = queueCount(v);
+    const isWaitingMode = isReservedNow || queued > 0; // véhicule pris, OU libéré mais des clients attendent déjà
+    const dispoFinal = v.dispo && !isWaitingMode;
+    const badgeInfo = reservationBadge(reservation, dispoFinal, queued);
     let badgeLabel = badgeInfo.label;
     let badgeSub = '';
     
@@ -209,9 +229,9 @@ function carteHTML(v, reservations, index) {
                 <div class="price-line"><span class="price-label">Vente</span><span class="price">${fmt(v.vente)}</span></div>
             </div>
             <div class="card-actions">
-                ${isReservedNow
-                    ? `<button type="button" class="btn-full btn-reserve" data-id="${v.id}" onclick="event.stopPropagation()" style="background:#d97706;">Liste d'attente</button>
-                       <span class="btn-full btn-acheter-card is-locked" role="link" aria-disabled="true" title="Véhicule indisponible pendant la réservation" onclick="event.stopPropagation()">Acheter</span>`
+                ${isWaitingMode
+                    ? `<button type="button" class="btn-full btn-reserve" data-id="${v.id}" onclick="event.stopPropagation()" style="background:#d97706;">Liste d'attente${queued ? ` (${queued})` : ''}</button>
+                       <span class="btn-full btn-acheter-card is-locked" role="link" aria-disabled="true" title="${isReservedNow ? 'Véhicule indisponible pendant la réservation' : 'Véhicule proposé en priorité aux clients en file d\'attente'}" onclick="event.stopPropagation()">Acheter</span>`
                     : `<button type="button" class="btn-full btn-reserve" data-id="${v.id}" onclick="event.stopPropagation()">Réserver</button>
                        <a href="${lienAchat(v)}" class="btn-full btn-acheter-card" onclick="event.stopPropagation()">Acheter</a>`}
             </div>
@@ -220,12 +240,17 @@ function carteHTML(v, reservations, index) {
     </div>`;
 }
 
+let lastGridHtml = '';
 function renderFleet(list) {
     const grid = document.getElementById('vehicleGrid');
     const noResult = document.getElementById('noResult');
     const reservations = activeReservations();
-    grid.innerHTML = list.map((v, i) => carteHTML(v, reservations, i)).join('');
+    const html = list.map((v, i) => carteHTML(v, reservations, i)).join('');
     noResult.hidden = list.length > 0;
+    // Rien n'a changé : on ne détruit pas les cartes (évite le rechargement des images, le clignotement et les animations rejouées)
+    if (html === lastGridHtml && grid.childElementCount) return;
+    lastGridHtml = html;
+    grid.innerHTML = html;
     observeReveals(grid);
     attachCardEvents();
     applyTiltEffect();
@@ -304,12 +329,14 @@ function openModal(id) {
     if (!v) return;
     const reservations = activeReservations();
     const reservation = getReservation(reservations, v);
-    const dispoFinal = v.dispo && !reservation;
+    const queued = queueCount(v);
+    const isWaitingMode = !!reservation || queued > 0;
+    const dispoFinal = v.dispo && !isWaitingMode;
 
     document.getElementById('modalImg').src = v.img;
     document.getElementById('modalImg').alt = v.nom;
     document.getElementById('modalTitle').textContent = v.nom;
-    const modalBadgeInfo = reservationBadge(reservation, dispoFinal);
+    const modalBadgeInfo = reservationBadge(reservation, dispoFinal, queued);
     document.getElementById('modalBadge').textContent = modalBadgeInfo.label;
     document.getElementById('modalBadge').className = ('badge modal-badge ' + modalBadgeInfo.cls).trim();
     document.getElementById('modalDesc').textContent = v.description;
@@ -328,11 +355,11 @@ function openModal(id) {
     const modalReserveBtn = document.getElementById('modalReserveBtn');
     const modalAchatBtn = document.getElementById('modalAchatBtn');
     
-    if (reservation) {
+    if (isWaitingMode) {
         modalReserveBtn.disabled = false;
         modalReserveBtn.classList.remove('is-locked');
         modalReserveBtn.style.background = "#d97706";
-        modalReserveBtn.textContent = "📝 S'inscrire sur la liste d'attente";
+        modalReserveBtn.textContent = queued ? `📝 S'inscrire sur la liste d'attente (${queued} en attente)` : "📝 S'inscrire sur la liste d'attente";
         modalReserveBtn.onclick = () => { closeModal(); openReservationModal(v.id, true); };
 
         modalAchatBtn.classList.add('is-locked');
@@ -359,6 +386,9 @@ function openModal(id) {
     } else if (reservation) {
         document.getElementById('modalTimer').hidden = false;
         document.getElementById('modalTimer').textContent = `Ce véhicule est actuellement en cours de réservation. Vous pouvez vous inscrire en liste d'attente.`;
+    } else if (queued > 0) {
+        document.getElementById('modalTimer').hidden = false;
+        document.getElementById('modalTimer').textContent = `Ce véhicule vient de se libérer : il est proposé en priorité aux ${queued} client${queued > 1 ? 's' : ''} en file d'attente. Vous pouvez vous inscrire en liste d'attente.`;
     } else {
         document.getElementById('modalTimer').hidden = true;
     }
@@ -383,7 +413,7 @@ function attachCardEvents() {
             const carId = btn.dataset.id;
             const reservations = activeReservations();
             const v = VEHICLES.find(x => x.id === carId);
-            const isWaiting = v && !!getReservation(reservations, v);
+            const isWaiting = v && (!!getReservation(reservations, v) || queueCount(v) > 0);
             openReservationModal(carId, isWaiting); 
         });
     });
@@ -1002,6 +1032,7 @@ function handleReservationSubmit(e) {
             alert("Votre réservation n'a pas pu être enregistrée : " + data.message);
         }
         if (window.ReservationStore && ReservationStore.refresh) ReservationStore.refresh();
+        loadWaitingCounts();
     })
     .catch(err => {
         console.error("Erreur réseau lors de l'enregistrement de la réservation :", err);
@@ -1045,6 +1076,8 @@ document.addEventListener('DOMContentLoaded', () => {
     buildBrandChips();
     loadVehicles();                       
     setInterval(loadVehicles, 30000);     
+    loadWaitingCounts();
+    setInterval(loadWaitingCounts, 20000);
 
     ReservationStore.subscribe(res => {
         liveReservations = res || {};
@@ -1061,10 +1094,11 @@ document.addEventListener('DOMContentLoaded', () => {
             const badge = card.querySelector('.badge');
             const reservation = getReservation(actives, car);
             const isReservedNow = !!reservation;
-            const dispoFinal = car.dispo && !isReservedNow;
+            const queuedNow = queueCount(car);
+            const dispoFinal = car.dispo && !isReservedNow && queuedNow === 0;
 
             if (badge) {
-                const info = reservationBadge(reservation, dispoFinal);
+                const info = reservationBadge(reservation, dispoFinal, queuedNow);
                 badge.textContent = info.label;
                 badge.classList.remove('badge-reserve', 'badge-pending');
                 info.cls.split(' ').filter(Boolean).forEach(c => badge.classList.add(c));

@@ -680,10 +680,10 @@ function sendPurchaseWhatsApp(event) {
     .then(data => {
         if (!data.success) {
             console.error('Erreur lors de l’enregistrement de la vente : ', data.message);
-            if (data.code === 'ALREADY_PURCHASING') {
-                alreadyTaken = true;
-                alert(data.message);
-            }
+            // Véhicule déjà en cours d'achat / réservé / attendu, ou dossier refusé (documents manquants...) :
+            // rien n'a été enregistré, on prévient le client et on n'ouvre pas WhatsApp.
+            alreadyTaken = true;
+            alert(data.message || "Votre demande n'a pas pu être enregistrée. Veuillez réessayer.");
         } else {
             console.log('Succès : ', data.message);
         }

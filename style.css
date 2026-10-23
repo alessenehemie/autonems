@@ -172,7 +172,7 @@ nav a:hover { color: var(--accent-gold); }
 .card {
     background: var(--bg-card); border-radius: var(--radius-lg); border: 1px solid rgba(0,0,0,0.05);
     box-shadow: var(--shadow-soft); transition: transform 0.15s ease-out, box-shadow 0.35s ease;
-    overflow: hidden; cursor: pointer; will-change: transform;
+    overflow: hidden; cursor: pointer;
 }
 .card:hover { box-shadow: var(--shadow-hover); }
 
@@ -190,7 +190,7 @@ nav a:hover { color: var(--accent-gold); }
 .badge-reserve { background: var(--accent-gold); }
 .badge-timer {
     position: absolute; bottom: 12px; left: 12px; background: rgba(11,26,42,0.82); color: #fff;
-    font-size: 0.7rem; font-weight: 600; padding: 5px 10px; border-radius: 14px; backdrop-filter: blur(4px);
+    font-size: 0.7rem; font-weight: 600; padding: 5px 10px; border-radius: 14px;
 }
 
 .card-info { padding: 25px; }
@@ -230,7 +230,7 @@ nav a:hover { color: var(--accent-gold); }
 .site-footer { background: var(--primary-dark); color: #7f92a6; text-align: center; padding: 22px 5% 34px; font-size: 0.85rem; }
 
 /* ---------- Reveal ---------- */
-.reveal { opacity: 0; transform: translateY(40px); transition: all 0.8s cubic-bezier(.2,.8,.2,1); }
+.reveal { opacity: 0; transform: translateY(40px); transition: opacity 0.8s cubic-bezier(.2,.8,.2,1), transform 0.8s cubic-bezier(.2,.8,.2,1); }
 .reveal.active { opacity: 1; transform: translateY(0); }
 
 /* ---------- Bouton WhatsApp flottant ---------- */
@@ -254,7 +254,7 @@ body.modal-open { overflow: hidden; }
     padding: 24px;
 }
 .vehicle-modal.open { opacity: 1; pointer-events: all; }
-.modal-overlay { position: absolute; inset: 0; background: rgba(3,8,17,0.72); backdrop-filter: blur(6px); }
+.modal-overlay { position: absolute; inset: 0; background: rgba(3,8,17,0.72); }
 .modal-panel {
     position: relative; background: #fff; border-radius: 24px; max-width: 620px; width: 100%;
     max-height: 88vh; overflow-y: auto; box-shadow: 0 30px 70px rgba(0,0,0,0.4);

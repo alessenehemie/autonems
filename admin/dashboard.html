@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AutoNems - Tableau de Bord Administrateur</title>
     <link rel="stylesheet" href="dashboard.css">
+    <link rel="stylesheet" href="dashboard-theme.css">
+   
 </head>
 <body class="admin-dashboard">
 
@@ -51,6 +53,11 @@
                 <div class="stat-card orange" style="border-color: #f59e0b;">
                     <div class="stat-value" id="statAVerifier">–</div>
                     <div class="stat-label">Dossiers à vérifier</div>
+                </div>
+                <div class="stat-card orange" style="border-color: #d97706;">
+                    <div class="stat-value" id="statAttente" style="color: #d97706;">–</div>
+                    <div class="stat-label">Clients en file d'attente</div>
+                    <div class="stat-label" id="statAttenteDetail" style="font-size: 0.8rem; opacity: 0.8;"></div>
                 </div>
             </div>
         </section>
@@ -113,6 +120,7 @@
                         <table class="data-table">
                             <thead>
                                 <tr>
+                                    <th>Rang</th>
                                     <th>Client</th>
                                     <th>Téléphone</th>
                                     <th>Véhicule</th>
@@ -124,7 +132,7 @@
                                 </tr>
                             </thead>
                             <tbody id="waitingTableBody">
-                                <tr class="empty-row"><td colspan="8">Chargement de la file d'attente...</td></tr>
+                                <tr class="empty-row"><td colspan="9">Chargement de la file d'attente...</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -157,6 +165,34 @@
                         </thead>
                         <tbody id="reservationsTableBody">
                             <tr class="empty-row"><td colspan="9">Chargement des réservations...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Section : Historique des réservations (table « historique ») -->
+            <div style="margin-top: 40px; margin-bottom: 15px;">
+                <h2 style="color: #6b7280; font-size: 1.5rem; margin-bottom: 5px;">Historique des réservations</h2>
+                <p style="margin-bottom: 0;">Réservations terminées ou archivées (y compris les clients promus depuis la file d'attente).</p>
+            </div>
+
+            <div class="card-box">
+                <div class="data-table-container">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Client</th>
+                                <th>Téléphone</th>
+                                <th>Véhicule</th>
+                                <th>Durée</th>
+                                <th>CNI (Numéro & Photo)</th>
+                                <th>Permis (Numéro & Photo)</th>
+                                <th>Statut</th>
+                                <th>Reçue le</th>
+                            </tr>
+                        </thead>
+                        <tbody id="historyTableBody">
+                            <tr class="empty-row"><td colspan="8">Chargement de l'historique...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -496,5 +532,7 @@
     </div>
 
     <script src="dashboard.js"></script>
+     <script src="dashboard-theme.js"></script>
+
 </body>
 </html>

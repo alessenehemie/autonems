@@ -6,7 +6,10 @@ let currentVehicules = [];
 let currentReservations = [];
 let currentSales = [];
 let currentAttente = []; // <-- Ajouté pour stocker les données de la table 'attente'[cite: 6]
-let lastAttenteSig = ''; // <-- Ajouté pour le suivi des modifications de l'attente[cite: 6]
+let currentHistorique = [];
+let lastHistoriqueSig = '';
+let lastAttenteSig = '';
+let attenteLoadedOnce = false; // <-- Ajouté pour le suivi des modifications de l'attente[cite: 6]
 let editingVehicleId = null;
  
 /* ---------- Utilitaires ---------- */
@@ -90,7 +93,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     initSalesModal(); 
     initBookingModal();
 
-    await Promise.all([loadVehicules(), loadReservations(), loadSales(), loadAttente()]); // <-- Ajout de loadAttente()[cite: 6]
+    await Promise.all([loadVehicules(), loadReservations(), loadSales(), loadAttente(), loadHistorique()]);
     updateStats();
 });
  
@@ -200,7 +203,48 @@ function toWhatsAppNumber(raw) {
     return '';
 }
 
-function buildWaMessage(nom, car) {
+const WA_HOLD_HOURS = 2; // même valeur que RESERVATION_HOLD_HOURS dans booking.php
+const WA_PROMOTED_KEY = 'autonems_wa_promoted';
+function waPromotedRead() {
+    try { return JSON.parse(localStorage.getItem(WA_PROMOTED_KEY) || '{}') || {}; } catch (e) { return {}; }
+}
+function waPromotedMark(resId) {
+    const m = waPromotedRead(); m[String(resId)] = true;
+    try { localStorage.setItem(WA_PROMOTED_KEY, JSON.stringify(m)); } catch (e) {}
+}
+function waIsPromoted(resId) { return !!waPromotedRead()[String(resId)]; }
+
+// Types de messages : verified (dossier vérifié), waiting_added (inscription en file),
+// free (véhicule libre, pour le n°1), promoted (client passé en réservation : à venir finaliser)
+const WA_KINDS = {
+    verified:      { title: '✔ Dossier vérifié',                  key: (r) => String(r.id) },
+    waiting_added: { title: "✔ Inscription en file d'attente",    key: (r) => 'att:' + r.id },
+    free:          { title: '🚗 Véhicule libre',                  key: (r) => 'free:' + r.id },
+    promoted:      { title: '✔ Réservation ouverte',              key: (r) => 'promo:' + r.id }
+};
+
+function buildWaMessage(nom, car, kind = 'verified', extra = {}) {
+    if (kind === 'waiting_added') {
+        const rang = Number(extra.rang) || 0;
+        return `Bonjour ${nom},\n\n` +
+            `Votre inscription en file d'attente pour le véhicule « ${car} » chez AutoNems a bien été enregistrée ✅\n\n` +
+            (rang ? `Vous êtes actuellement n°${rang} dans la file pour ce véhicule.\n\n` : '') +
+            `Dès que le véhicule sera libre, nous vous préviendrons pour que vous puissiez passer à l'agence finaliser votre réservation.\n\n` +
+            `Merci de votre patience !\nL'équipe AutoNems`;
+    }
+    if (kind === 'free') {
+        return `Bonjour ${nom},\n\n` +
+            `L'ancienne réservation pour le véhicule « ${car} » chez AutoNems est maintenant terminée. ` +
+            `Le véhicule est libre, vous pouvez venir à l'agence pour lancer votre réservation !\n\n` +
+            `À très bientôt,\nL'équipe AutoNems`;
+    }
+    if (kind === 'promoted') {
+        return `Bonjour ${nom},\n\n` +
+            `Bonne nouvelle : le véhicule « ${car} » est maintenant disponible et votre dossier est passé de la file d'attente à « En cours de réservation » ✅\n\n` +
+            `Merci de passer à l'agence dans les ${WA_HOLD_HOURS} heures pour finaliser votre réservation. ` +
+            `Passé ce délai, le véhicule pourra être proposé à d'autres clients.\n\n` +
+            `À très bientôt,\nL'équipe AutoNems`;
+    }
     return `Bonjour ${nom},\n\n` +
         `Votre dossier de réservation pour le véhicule « ${car} » chez AutoNems a été vérifié par notre administrateur ✅\n\n` +
         `Vous pouvez dès maintenant passer à l'agence pour prendre le véhicule. ` +
@@ -208,13 +252,23 @@ function buildWaMessage(nom, car) {
         `Merci de votre confiance !\nL'équipe AutoNems`;
 }
 
-function waActionsHtml(item) {
-    const ok = Number(item.verified) === 1 || item.verified === true;
-    if (!ok) return '';
-    const ts = waStoreRead()[String(item.id)];
+function waSentNote(key) {
+    const ts = waStoreRead()[key];
     const d = ts ? new Date(ts) : null;
-    const note = d && !isNaN(d) ? `<div class="wa-sent-note">✔ WhatsApp ouvert le ${d.toLocaleString('fr-FR')}</div>` : '';
-    return `<button type="button" class="btn-wa" data-id="${item.id}">💬 Message WhatsApp</button>${note}`;
+    return d && !isNaN(d) ? `<div class="wa-sent-note">✔ WhatsApp ouvert le ${d.toLocaleString('fr-FR')}</div>` : '';
+}
+
+function waActionsHtml(item) {
+    const parts = [];
+    // Client venant de la file d'attente et encore « En cours » : message « passez finaliser »
+    if (waIsPromoted(item.id) && (item.statut || 'En cours') === 'En cours') {
+        parts.push(`<button type="button" class="btn-wa" data-id="${escHtml(item.id)}" data-kind="promoted">💬 Prévenir : passez finaliser</button>${waSentNote('promo:' + item.id)}`);
+    }
+    const ok = Number(item.verified) === 1 || item.verified === true;
+    if (ok) {
+        parts.push(`<button type="button" class="btn-wa" data-id="${escHtml(item.id)}" data-kind="verified">💬 Message WhatsApp</button>${waSentNote(String(item.id))}`);
+    }
+    return parts.join('');
 }
 
 function ensureWaUi() {
@@ -275,11 +329,12 @@ function ensureWaUi() {
         const text = document.getElementById('waNoticeText').value.trim();
         if (!text) return;
         window.open(`https://wa.me/${waCurrent.number}?text=${encodeURIComponent(text)}`, '_blank', 'noopener,noreferrer');
-        waMarkOpened(waCurrent.id);
+        waMarkOpened(waCurrent.key);
         const nom = waCurrent.nom;
         closeWhatsAppNotice();
         showWaToast(`WhatsApp ouvert pour ${nom} : le message est prêt, appuyez sur « Envoyer » dans WhatsApp.`);
         renderReservations();
+        renderWaitingList();
     });
 }
 
@@ -293,15 +348,17 @@ function showWaToast(text) {
     waToastTimer = setTimeout(() => t.classList.remove('show'), 7000);
 }
 
-function openWhatsAppNotice(r) {
+function openWhatsAppNotice(r, kind = 'verified', extra = {}) {
     ensureWaUi();
+    const cfg = WA_KINDS[kind] || WA_KINDS.verified;
     const nom = r.client_nom || 'Client';
     const car = r.car_name || 'votre véhicule';
     const number = toWhatsAppNumber(r.client_telephone);
-    waCurrent = { id: r.id, nom, number };
+    waCurrent = { id: r.id, key: cfg.key(r), nom, number };
 
+    document.getElementById('waNoticeTitle').textContent = cfg.title;
     document.getElementById('waNoticeTo').textContent = `Pour : ${nom} — ${r.client_telephone || 'numéro manquant'}`;
-    document.getElementById('waNoticeText').value = buildWaMessage(nom, car);
+    document.getElementById('waNoticeText').value = buildWaMessage(nom, car, kind, extra);
 
     const warn = document.getElementById('waNoticeWarn');
     const send = document.getElementById('waNoticeSend');
@@ -343,6 +400,18 @@ function updateStats() {
         const todoRes = currentReservations.filter(r => Number(r.verified) !== 1 && (r.statut || 'En cours') !== 'Terminée').length;
         const todoSales = currentSales.filter(s => Number(s.verified) !== 1).length;
         statAVerifier.textContent = todoRes + todoSales;
+    }
+
+    const statAttente = document.getElementById('statAttente');
+    if (statAttente) {
+        statAttente.textContent = currentAttente.length;
+        const detail = document.getElementById('statAttenteDetail');
+        if (detail) {
+            const nbVehicules = new Set(currentAttente.map(a => a.car_id)).size;
+            detail.textContent = nbVehicules
+                ? `sur ${nbVehicules} véhicule${nbVehicules > 1 ? 's' : ''}`
+                : 'Aucun client en attente';
+        }
     }
 }
  
@@ -694,11 +763,62 @@ async function loadReservations() {
         lastReservationsSig = sig;
         currentReservations = nextReservations;
         renderReservations();
+        if (lastAttenteSig !== '') renderWaitingList(); // la file dépend de l'état des réservations (véhicule libre ou non)
     } catch (err) {
         console.error(err);
         if(tbody) tbody.innerHTML = `<tr class="empty-row"><td colspan="9">Erreur de chargement des réservations.</td></tr>`;
-        if(waitingBody) waitingBody.innerHTML = `<tr class="empty-row"><td colspan="8">Erreur de chargement de la file d'attente.</td></tr>`;
+        if(waitingBody) waitingBody.innerHTML = `<tr class="empty-row"><td colspan="9">Erreur de chargement de la file d'attente.</td></tr>`;
     }
+}
+
+// Charge l'historique des réservations depuis la table « historique » (booking.php?action=history)
+async function loadHistorique() {
+    const tbody = document.getElementById('historyTableBody');
+    try {
+        const res = await fetch(API_BASE + 'booking.php?action=history');
+        const data = await res.json();
+        if (!data.success) throw new Error(data.message || 'Erreur inconnue');
+        const next = data.historique || [];
+        const sig = JSON.stringify(next);
+        if (sig === lastHistoriqueSig) return;
+        lastHistoriqueSig = sig;
+        currentHistorique = next;
+        renderHistorique();
+    } catch (err) {
+        console.error(err);
+        if (tbody) tbody.innerHTML = `<tr class="empty-row"><td colspan="8">Erreur de chargement de l'historique.</td></tr>`;
+    }
+}
+
+function renderHistorique() {
+    const tbody = document.getElementById('historyTableBody');
+    if (!tbody) return;
+    if (!currentHistorique.length) {
+        tbody.innerHTML = `<tr class="empty-row"><td colspan="8">Aucune réservation dans l'historique.</td></tr>`;
+        return;
+    }
+    tbody.innerHTML = currentHistorique.map(r => {
+        const idCardPath = r.id_card || r.identity_doc;
+        const licensePath = r.driver_license_file || r.driver_license_path;
+        const thumb = (path, alt) => path
+            ? `<a href="${resolveImgSrc(path)}" target="_blank"><img class="table-thumb" loading="lazy" decoding="async" src="${resolveImgSrc(path)}" alt="${alt}" style="width:35px; height:35px; object-fit:cover; border-radius:4px; cursor:pointer;" title="Voir ${alt}"></a>`
+            : '';
+        const cniCell = [r.id_card_number ? `<strong>CNI :</strong> ${escHtml(r.id_card_number)}` : '', thumb(idCardPath, 'CNI')].filter(Boolean).join('<br>') || '—';
+        const permisCell = [r.driver_license ? `<strong>Permis :</strong> ${escHtml(r.driver_license)}` : '', thumb(licensePath, 'Permis')].filter(Boolean).join('<br>') || '—';
+
+        return `
+            <tr>
+                <td><strong>${escHtml(r.client_nom || 'Client')}</strong></td>
+                <td>${escHtml(r.client_telephone || '—')}</td>
+                <td>${escHtml(r.car_name || 'Véhicule')}</td>
+                <td>${escHtml(r.duree_label || '—')}</td>
+                <td>${cniCell}</td>
+                <td>${permisCell}</td>
+                <td><span class="badge badge-off">Terminée</span></td>
+                <td>${r.created_at ? new Date(r.created_at).toLocaleString('fr-FR') : '—'}</td>
+            </tr>
+        `;
+    }).join('');
 }
 
 // Fonction pour charger la file d'attente indépendante depuis attente.php
@@ -711,13 +831,34 @@ async function loadAttente() {
         const nextAttente = data.attente || [];
         const sig = JSON.stringify(nextAttente);
         if (sig === lastAttenteSig) return;
+        // Nouveau(x) client(s) arrivé(s) en file depuis le dernier chargement : rappel d'envoyer la confirmation
+        if (attenteLoadedOnce) {
+            const known = new Set(currentAttente.map(a => String(a.id)));
+            const fresh = nextAttente.filter(a => !known.has(String(a.id)));
+            if (fresh.length) {
+                ensureWaUi();
+                const noms = fresh.map(a => a.client_nom || 'Client').join(', ');
+                showWaToast(`🕒 Nouveau en file d'attente : ${noms}. Pensez à lui confirmer son inscription (bouton WhatsApp).`);
+            }
+        }
+        attenteLoadedOnce = true;
         lastAttenteSig = sig;
         currentAttente = nextAttente;
         renderWaitingList();
     } catch (err) {
         console.error(err);
-        if(waitingBody) waitingBody.innerHTML = `<tr class="empty-row"><td colspan="8">Erreur de chargement de la file d'attente.</td></tr>`;
+        if(waitingBody) waitingBody.innerHTML = `<tr class="empty-row"><td colspan="9">Erreur de chargement de la file d'attente.</td></tr>`;
     }
+}
+
+// Un véhicule est « bloqué » s'il a une réservation active (Réservé, ou En cours dont le délai n'est pas dépassé)
+function isCarBlocked(carId) {
+    return currentReservations.some(r =>
+        String(r.car_id) === String(carId) &&
+        (r.statut || '').toLowerCase() !== 'liste_attente' &&
+        r.en_cours &&
+        (r.statut === 'Confirmée' || ((r.statut || 'En cours') === 'En cours' && !r.hold_expired))
+    );
 }
 
 // Rendu de la File d'attente séparée depuis currentAttente
@@ -726,7 +867,7 @@ function renderWaitingList() {
     if (!tbody) return;
 
     if (!currentAttente.length) {
-        tbody.innerHTML = `<tr class="empty-row"><td colspan="8">Aucun client en file d'attente actuellement.</td></tr>`;
+        tbody.innerHTML = `<tr class="empty-row"><td colspan="9">Aucun client en file d'attente actuellement.</td></tr>`;
         return;
     }
 
@@ -734,46 +875,78 @@ function renderWaitingList() {
         const idCardPath = r.id_card || r.identity_doc;
         const licensePath = r.driver_license_file || r.driver_license_path;
 
-        const idCardHtml = idCardPath ? `<a href="${resolveImgSrc(idCardPath)}" target="_blank"><img class="table-thumb" src="${resolveImgSrc(idCardPath)}" alt="CNI" style="width:35px; height:35px; object-fit:cover; border-radius:4px;" title="Voir CNI"></a>` : '';
-        const licenseHtml = licensePath ? `<a href="${resolveImgSrc(licensePath)}" target="_blank"><img class="table-thumb" src="${resolveImgSrc(licensePath)}" alt="Permis" style="width:35px; height:35px; object-fit:cover; border-radius:4px;" title="Voir Permis"></a>` : '';
+        const idCardHtml = idCardPath ? `<a href="${escHtml(resolveImgSrc(idCardPath))}" target="_blank"><img class="table-thumb" src="${escHtml(resolveImgSrc(idCardPath))}" alt="CNI" style="width:35px; height:35px; object-fit:cover; border-radius:4px;" title="Voir CNI"></a>` : '';
+        const licenseHtml = licensePath ? `<a href="${escHtml(resolveImgSrc(licensePath))}" target="_blank"><img class="table-thumb" src="${escHtml(resolveImgSrc(licensePath))}" alt="Permis" style="width:35px; height:35px; object-fit:cover; border-radius:4px;" title="Voir Permis"></a>` : '';
 
-        const cniCell = [r.id_card_number ? `<strong>CNI :</strong> ${r.id_card_number}` : '', idCardHtml].filter(Boolean).join('<br>') || '—';
-        const permisCell = [r.driver_license ? `<strong>Permis :</strong> ${r.driver_license}` : '', licenseHtml].filter(Boolean).join('<br>') || '—';
+        const cniCell = [r.id_card_number ? `<strong>CNI :</strong> ${escHtml(r.id_card_number)}` : '', idCardHtml].filter(Boolean).join('<br>') || '—';
+        const permisCell = [r.driver_license ? `<strong>Permis :</strong> ${escHtml(r.driver_license)}` : '', licenseHtml].filter(Boolean).join('<br>') || '—';
 
-        // Intégration du bouton WhatsApp pour notifier que l'ancienne réservation est finie
-        const waText = encodeURIComponent(`Bonjour ${r.client_nom},\n\nL'ancienne réservation pour le véhicule « ${r.car_name} » chez AutoNems est maintenant terminée. Le véhicule est libre, vous pouvez venir à l'agence pour lancer votre réservation !\n\nÀ très bientôt,\nL'équipe AutoNems`);
-        const waPhone = toWhatsAppNumber(r.client_telephone);
-        const waBtnHtml = waPhone 
-            ? `<a href="https://wa.me/${waPhone}?text=${waText}" target="_blank" class="btn-icon" title="Envoyer un message WhatsApp" style="background:#25d366; color:#fff; border:none; padding:6px 10px; border-radius:6px; cursor:pointer; text-decoration:none; display:inline-block; margin-right:5px;" aria-label="WhatsApp">💬</a>` 
+        const rang = Number(r.rang) || 0;
+        const isFirst = rang === 1;
+        const blocked = isCarBlocked(r.car_id);
+
+        // Rang dans la file pour ce véhicule
+        const rangHtml = isFirst
+            ? `<span class="badge" style="background:#16a34a; color:#fff;">n°1</span>`
+            : `<span class="badge" style="background:#6b7280; color:#fff;">n°${rang || '?'}</span>`;
+
+        // WhatsApp : 1) confirmer l'inscription (tous les clients)  2) « véhicule libre » (seulement le n°1, véhicule libre)
+        const waOk = !!toWhatsAppNumber(r.client_telephone);
+        const waAddedBtn = waOk
+            ? `<button type="button" class="btn-wa btn-wa-att" data-id="${escHtml(r.id)}" data-kind="waiting_added" style="margin:0 0 6px;">💬 Confirmer l'inscription</button>${waSentNote('att:' + r.id)}`
             : '';
+        const waFreeBtn = (waOk && isFirst && !blocked)
+            ? `<button type="button" class="btn-wa btn-wa-att" data-id="${escHtml(r.id)}" data-kind="free" style="margin:0 0 6px;">💬 Véhicule libre</button>${waSentNote('free:' + r.id)}`
+            : '';
+        const waBtnHtml = waAddedBtn + waFreeBtn;
+
+        // Activer : seulement le n°1 et véhicule libre
+        const canPromote = isFirst && !blocked;
+        const promoteTitle = !isFirst
+            ? `Un client est arrivé avant (n°1 : à traiter en premier)`
+            : (blocked ? `Véhicule encore pris : passez d'abord son dossier à « Terminée »` : `Transformer en réservation active`);
+        const promoteStyle = canPromote
+            ? 'background:#2563eb; cursor:pointer;'
+            : 'background:#9ca3af; cursor:not-allowed; opacity:0.7;';
 
         return `
             <tr>
-                <td><strong>${r.client_nom || 'Client'}</strong></td>
-                <td>${r.client_telephone || '—'}</td>
-                <td>${r.car_name || 'Véhicule'}</td>
+                <td>${rangHtml}</td>
+                <td><strong>${escHtml(r.client_nom || 'Client')}</strong></td>
+                <td>${escHtml(r.client_telephone || '—')}</td>
+                <td>${escHtml(r.car_name || 'Véhicule')}</td>
                 <td>${cniCell}</td>
                 <td>${permisCell}</td>
                 <td><span class="badge" style="background:#d97706; color:#fff;">En attente</span></td>
                 <td>${r.created_at ? new Date(r.created_at).toLocaleString('fr-FR') : '—'}</td>
                 <td>
                     ${waBtnHtml}
-                    <button class="btn-icon btn-promote" data-id="${r.id}" title="Transformer en réservation active" style="background:#2563eb; color:#fff; border:none; padding:6px 12px; border-radius:6px; cursor:pointer; margin-right:5px; font-size:12px; font-weight:600;" aria-label="Transformer en réservation">
+                    <div style="margin-top:4px;"><button class="btn-icon btn-promote" data-id="${escHtml(r.id)}" ${canPromote ? '' : 'disabled'} title="${escHtml(promoteTitle)}" style="${promoteStyle} color:#fff; border:none; padding:6px 12px; border-radius:6px; margin-right:5px; font-size:12px; font-weight:600;" aria-label="Transformer en réservation">
                         🚀 Activer
                     </button>
-                    <button class="btn-icon btn-delete-attente" data-id="${r.id}" title="Supprimer" style="background:#ef4444; color:#fff; border:none; padding:6px 10px; border-radius:6px; cursor:pointer;" aria-label="Supprimer">
+                    <button class="btn-icon btn-delete-attente" data-id="${escHtml(r.id)}" title="Supprimer" style="background:#ef4444; color:#fff; border:none; padding:6px 10px; border-radius:6px; cursor:pointer;" aria-label="Supprimer">
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
-                    </button>
+                    </button></div>
                 </td>
             </tr>
         `;
     }).join('');
 
+    tbody.querySelectorAll('.btn-wa-att').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const item = currentAttente.find(x => String(x.id) === String(btn.dataset.id));
+            if (!item) return;
+            const kind = btn.dataset.kind;
+            // Clé distincte par type de message pour ne pas mélanger les « WhatsApp ouvert le… »
+            openWhatsAppNotice(item, kind, { rang: item.rang });
+        });
+    });
+
     tbody.querySelectorAll('.btn-delete-attente').forEach(btn => {
         btn.addEventListener('click', () => deleteAttente(btn.dataset.id));
     });
 
-    tbody.querySelectorAll('.btn-promote').forEach(btn => {
+    tbody.querySelectorAll('.btn-promote:not([disabled])').forEach(btn => {
         btn.addEventListener('click', () => promoteWaitingReservation(btn.dataset.id));
     });
 }
@@ -782,6 +955,8 @@ function renderWaitingList() {
 async function promoteWaitingReservation(id) {
     const confirmed = await showConfirmDialog("Voulez-vous promouvoir ce client en réservation active ?");
     if (!confirmed) return;
+    // On garde les infos du client avant qu'il disparaisse de la file
+    const promoted = currentAttente.find(x => String(x.id) === String(id));
     try {
         const res = await fetch(API_BASE + 'attente.php', {
             method: 'POST',
@@ -792,6 +967,18 @@ async function promoteWaitingReservation(id) {
         lastAttenteSig = '';
         lastReservationsSig = '';
         pollOnce();
+
+        // Propose directement le message « vous pouvez passer finaliser »
+        if (promoted) {
+            const resId = data.reservation_id || ('att' + id);
+            if (data.reservation_id) waPromotedMark(data.reservation_id);
+            openWhatsAppNotice({
+                id: resId,
+                client_nom: promoted.client_nom,
+                client_telephone: promoted.client_telephone,
+                car_name: promoted.car_name
+            }, 'promoted');
+        }
     } catch (err) {
         alert('Erreur : ' + err.message);
     }
@@ -831,11 +1018,11 @@ function renderReservations() {
         const idCardPath = r.id_card || r.identity_doc;
         const licensePath = r.driver_license_file || r.driver_license_path;
 
-        const idCardHtml = idCardPath ? `<a href="${resolveImgSrc(idCardPath)}" target="_blank"><img class="table-thumb" loading="lazy" decoding="async" src="${resolveImgSrc(idCardPath)}" alt="CNI" style="width:35px; height:35px; object-fit:cover; border-radius:4px; cursor:pointer;" title="Voir CNI"></a>` : '';
-        const licenseHtml = licensePath ? `<a href="${resolveImgSrc(licensePath)}" target="_blank"><img class="table-thumb" loading="lazy" decoding="async" src="${resolveImgSrc(licensePath)}" alt="Permis" style="width:35px; height:35px; object-fit:cover; border-radius:4px; cursor:pointer;" title="Voir Permis"></a>` : '';
+        const idCardHtml = idCardPath ? `<a href="${escHtml(resolveImgSrc(idCardPath))}" target="_blank"><img class="table-thumb" loading="lazy" decoding="async" src="${escHtml(resolveImgSrc(idCardPath))}" alt="CNI" style="width:35px; height:35px; object-fit:cover; border-radius:4px; cursor:pointer;" title="Voir CNI"></a>` : '';
+        const licenseHtml = licensePath ? `<a href="${escHtml(resolveImgSrc(licensePath))}" target="_blank"><img class="table-thumb" loading="lazy" decoding="async" src="${escHtml(resolveImgSrc(licensePath))}" alt="Permis" style="width:35px; height:35px; object-fit:cover; border-radius:4px; cursor:pointer;" title="Voir Permis"></a>` : '';
 
-        const cniNum = r.id_card_number ? `<strong>CNI :</strong> ${r.id_card_number}` : '';
-        const licenseNum = r.driver_license ? `<strong>Permis :</strong> ${r.driver_license}` : '';
+        const cniNum = r.id_card_number ? `<strong>CNI :</strong> ${escHtml(r.id_card_number)}` : '';
+        const licenseNum = r.driver_license ? `<strong>Permis :</strong> ${escHtml(r.driver_license)}` : '';
 
         const cniCell = [cniNum, idCardHtml].filter(Boolean).join('<br>') || '—';
         const permisCell = [licenseNum, licenseHtml].filter(Boolean).join('<br>') || '—';
@@ -849,10 +1036,10 @@ function renderReservations() {
 
         return `
             <tr>
-                <td><strong>${r.client_nom || 'Client'}</strong></td>
-                <td>${r.client_telephone || '—'}</td>
-                <td>${r.car_name || 'Véhicule'}</td>
-                <td>${r.duree_label || '—'}${chronoHtml}</td>
+                <td><strong>${escHtml(r.client_nom || 'Client')}</strong></td>
+                <td>${escHtml(r.client_telephone || '—')}</td>
+                <td>${escHtml(r.car_name || 'Véhicule')}</td>
+                <td>${escHtml(r.duree_label || '—')}${chronoHtml}</td>
                 <td>${cniCell}</td>
                 <td>${permisCell}</td>
                 <td>
@@ -886,7 +1073,7 @@ function renderReservations() {
     tbody.querySelectorAll('.btn-wa').forEach(btn => {
         btn.addEventListener('click', () => {
             const r = currentReservations.find(item => String(item.id) === String(btn.dataset.id));
-            if (r) openWhatsAppNotice(r);
+            if (r) openWhatsAppNotice(r, btn.dataset.kind || 'verified');
         });
     });
 
@@ -929,7 +1116,7 @@ async function updateReservationStatus(id, statut) {
         });
         const data = await res.json();
         if (!data.success) throw new Error(data.message);
-        if (statut === 'Confirmée') { lastReservationsSig = ''; pollOnce(); }
+        if (statut === 'Confirmée' || statut === 'Terminée') { lastReservationsSig = ''; lastHistoriqueSig = ''; pollOnce(); }
     } catch (err) {
         alert('Erreur lors du changement de statut : ' + err.message);
         lastReservationsSig = '';
@@ -938,7 +1125,7 @@ async function updateReservationStatus(id, statut) {
 }
  
 function pollOnce() {
-    Promise.all([loadReservations(), loadSales(), loadAttente()]).then(updateStats); // <-- Ajout de loadAttente()[cite: 6]
+    Promise.all([loadReservations(), loadSales(), loadAttente(), loadHistorique()]).then(updateStats); // <-- Ajout de loadAttente()[cite: 6]
 }
 
 function initReservationsActions() {
@@ -946,7 +1133,7 @@ function initReservationsActions() {
     setInterval(() => {
         if (document.hidden) return;
         pollTick++;
-        const jobs = [loadReservations(), loadAttente()]; // <-- Ajout de loadAttente()[cite: 6]
+        const jobs = [loadReservations(), loadAttente(), loadHistorique()]; // <-- Ajout de loadAttente()[cite: 6]
         if (pollTick % 4 === 0) jobs.push(loadSales());
         Promise.all(jobs).then(updateStats);
     }, 15000);

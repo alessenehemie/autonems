@@ -34,6 +34,8 @@ try {
     exit;
 }
 
+require_once __DIR__ . '/reservation_archive.php'; // fin automatique des réservations expirées
+
 // Transforme un nom en identifiant (même logique que slugify() de dashboard.js)
 function slugify_php($text) {
     $text = mb_strtolower(trim((string)$text), 'UTF-8');
@@ -45,6 +47,35 @@ function slugify_php($text) {
     $text = preg_replace('/\s+/', '-',$text);
     $text = preg_replace('/[^a-z0-9_\-]+/', '',$text);
     return preg_replace('/-+/', '-', $text);
+}
+
+if (!function_exists('slugify_name')) {
+function slugify_name($text) {
+    $t = mb_strtolower((string) $text, 'UTF-8');
+    if (class_exists('Normalizer')) {
+        $n = Normalizer::normalize($t, Normalizer::FORM_D);
+        if ($n !== false) { $t = $n; }
+        $t = preg_replace('/[\x{0300}-\x{036f}]/u', '', $t);
+    } else {
+        $c = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $t);
+        if ($c !== false) { $t = preg_replace('/[`\'^"~]/', '', $c); }
+    }
+    $t = preg_replace('/[\s\x{00A0}\x{2000}-\x{200B}\x{202F}\x{3000}]+/u', '-', $t);
+    $t = preg_replace('/[^a-z0-9_\-]+/', '', $t);
+    return preg_replace('/-{2,}/', '-', $t);
+}
+}
+
+// Ce véhicule est-il « en cours d'achat » (vente au statut « en_cours » dans sales) ?
+function sale_in_progress(PDO $pdo, ...$names) {
+    $slugs = array_values(array_filter(array_map('slugify_name', $names)));
+    if (!$slugs) return false;
+    try {
+        foreach ($pdo->query("SELECT car_name FROM sales WHERE statut = 'en_cours'")->fetchAll() as $row) {
+            if (in_array(slugify_name($row['car_name']), $slugs, true)) return true;
+        }
+    } catch (Exception $e) { /* table sales absente : aucune vente en cours */ }
+    return false;
 }
 
 // Nettoie un texte reçu (retire le HTML, limite la longueur à celle de la colonne SQL)
@@ -283,6 +314,20 @@ if ($action === 'create') {
         }
     }
 
+    // --- VENTE EN COURS : on ne réserve pas (ni n'inscrit en file) un véhicule dont l'achat est en cours ---
+    // Les ajouts manuels de l'admin (qui postent un statut) ne sont pas bloqués.
+    if (($isWaitingList || !isset($_POST['statut'])) && sale_in_progress($pdo, $car_id, $car_name)) {
+        if ($id_card_path)        { @unlink(__DIR__ . '/../' . $id_card_path); }
+        if ($driver_license_path) { @unlink(__DIR__ . '/../' . $driver_license_path); }
+        echo json_encode(['success' => false, 'code' => 'PURCHASE_IN_PROGRESS',
+            'message' => "Ce véhicule est en cours d'achat par un autre client : il n'est pas disponible à la réservation pour le moment."],
+            JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    // Libère d'abord les véhicules dont la réservation est arrivée à son terme (archivage automatique)
+    archive_expired_reservations($pdo);
+
     // --- CAS 1 : SI C'EST UNE INSCRIPTION EN LISTE D'ATTENTE ---
     if ($isWaitingList) {
         try {
@@ -312,6 +357,12 @@ if ($action === 'create') {
                 $stmtHeld = $pdo->prepare("SELECT id FROM reservations WHERE car_id = ? AND en_cours = 1 AND " . hold_condition() . " LIMIT 1");
                 $stmtHeld->execute([$car_id, (int) round(microtime(true) * 1000)]);
                 $held = (bool) $stmtHeld->fetch();
+            }
+            // Véhicule libre mais des clients attendent déjà : on peut rejoindre la file
+            if (!$held) {
+                $stmtQ = $pdo->prepare("SELECT COUNT(*) FROM attente WHERE car_id = ?");
+                $stmtQ->execute([$car_id]);
+                $held = ((int) $stmtQ->fetchColumn()) > 0;
             }
             if (!$held) {
                 remove_uploaded($id_card_path, $driver_license_path);
@@ -389,6 +440,20 @@ if ($action === 'create') {
             exit;
         }
 
+        // Priorité à la file d'attente : une réservation directe du site (sans statut posté) ne doit pas
+        // passer devant les clients qui attendent déjà ce véhicule. L'admin (qui poste un statut) reste libre d'agir.
+        if (!isset($_POST['statut']) && $pdo->query("SHOW TABLES LIKE 'attente'")->rowCount() > 0) {
+            $stmtQueue = $pdo->prepare("SELECT COUNT(*) FROM attente WHERE car_id = ?");
+            $stmtQueue->execute([$car_id]);
+            if ((int) $stmtQueue->fetchColumn() > 0) {
+                $pdo->rollBack();
+                if ($id_card_path) { @unlink(__DIR__ . '/../' . $id_card_path); }
+                if ($driver_license_path) { @unlink(__DIR__ . '/../' . $driver_license_path); }
+                echo json_encode(['success' => false, 'message' => "Des clients attendent déjà ce véhicule : il leur est proposé en priorité. Inscrivez-vous en liste d'attente."]);
+                exit;
+            }
+        }
+
         $stmt =$pdo->prepare("INSERT INTO reservations (car_id, client_nom, client_telephone, car_name, until_ts, duree_label, id_card, id_card_number, driver_license, driver_license_file, payment_method, en_cours, statut) 
                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
                                
@@ -419,6 +484,7 @@ if ($action === 'list') {
             exit;
         }
 
+        archive_expired_reservations($pdo); // les dossiers dont la durée est dépassée passent dans l'historique
         $stmt =$pdo->query("SELECT *, UNIX_TIMESTAMP(created_at) * 1000 AS created_ms FROM reservations ORDER BY id DESC");
         $reservations =$stmt->fetchAll();
 
@@ -434,11 +500,49 @@ if ($action === 'list') {
     exit;
 }
 
+// --- HISTORIQUE DES RÉSERVATIONS (admin) : lit la table « historique » ---
+if ($action === 'history') {
+    if (session_status() === PHP_SESSION_NONE) { session_start(); }
+    if (!isset($_SESSION['autonems_admin']) || $_SESSION['autonems_admin'] !== true) {
+        http_response_code(401);
+        echo json_encode(['success' => false, 'message' => 'Accès non autorisé.']);
+        exit;
+    }
+    try {
+        if ($pdo->query("SHOW TABLES LIKE 'historique'")->rowCount() == 0) {
+            echo json_encode(['success' => true, 'historique' => []]);
+            exit;
+        }
+        $stmt = $pdo->query("SELECT * FROM historique ORDER BY id DESC");
+        echo json_encode(['success' => true, 'historique' => $stmt->fetchAll()], JSON_UNESCAPED_UNICODE);
+    } catch (Exception $e) {
+        echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+    }
+    exit;
+}
+
+// --- FILE D'ATTENTE PUBLIQUE : nombre de clients en attente par véhicule (aucune donnée personnelle) ---
+if ($action === 'public_queue') {
+    try {
+        $out = [];
+        if ($pdo->query("SHOW TABLES LIKE 'attente'")->rowCount() > 0) {
+            foreach ($pdo->query("SELECT car_id, COUNT(*) AS n FROM attente GROUP BY car_id")->fetchAll() as $r) {
+                $out[$r['car_id']] = (int) $r['n'];
+            }
+        }
+        echo json_encode((object) $out, JSON_UNESCAPED_UNICODE);
+    } catch (Exception $e) {
+        echo json_encode(['error' => $e->getMessage()]);
+    }
+    exit;
+}
+
 // --- LISTE PUBLIQUE (site client) ---
 if ($action === 'public_list') {
     try {
         $out = [];
         if ($pdo->query("SHOW TABLES LIKE 'reservations'")->rowCount() > 0) {
+            archive_expired_reservations($pdo);
             $now  = (int) round(microtime(true) * 1000);
             $stmt =$pdo->prepare("SELECT car_id, car_name, until_ts, statut, UNIX_TIMESTAMP(created_at) * 1000 AS created_ms FROM reservations
                                    WHERE en_cours = 1 AND " . hold_condition() . " ORDER BY id ASC");

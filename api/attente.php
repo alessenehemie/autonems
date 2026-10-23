@@ -15,11 +15,42 @@ function hold_condition() {
     return "(statut = 'Confirmée' OR (COALESCE(NULLIF(statut, ''), 'En cours') = 'En cours' AND UNIX_TIMESTAMP(created_at) * 1000 + " . RESERVATION_HOLD_MS . " > ?))";
 }
 
+require_once __DIR__ . '/reservation_archive.php'; // fin automatique des réservations expirées
+
 // Supprime un fichier de pièce d'identité enregistré dans uploads/ids/
 function remove_uploaded(...$paths) {
     foreach ($paths as $p) {
         if ($p && strpos($p, 'uploads/ids/') === 0 && strpos($p, '..') === false) { @unlink(__DIR__ . '/../' . $p); }
     }
+}
+
+if (!function_exists('slugify_name')) {
+function slugify_name($text) {
+    $t = mb_strtolower((string) $text, 'UTF-8');
+    if (class_exists('Normalizer')) {
+        $n = Normalizer::normalize($t, Normalizer::FORM_D);
+        if ($n !== false) { $t = $n; }
+        $t = preg_replace('/[\x{0300}-\x{036f}]/u', '', $t);
+    } else {
+        $c = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $t);
+        if ($c !== false) { $t = preg_replace('/[`\'^"~]/', '', $c); }
+    }
+    $t = preg_replace('/[\s\x{00A0}\x{2000}-\x{200B}\x{202F}\x{3000}]+/u', '-', $t);
+    $t = preg_replace('/[^a-z0-9_\-]+/', '', $t);
+    return preg_replace('/-{2,}/', '-', $t);
+}
+}
+
+// Ce véhicule est-il « en cours d'achat » (vente au statut « en_cours » dans sales) ?
+function sale_in_progress(PDO $pdo, ...$names) {
+    $slugs = array_values(array_filter(array_map('slugify_name', $names)));
+    if (!$slugs) return false;
+    try {
+        foreach ($pdo->query("SELECT car_name FROM sales WHERE statut = 'en_cours'")->fetchAll() as $row) {
+            if (in_array(slugify_name($row['car_name']), $slugs, true)) return true;
+        }
+    } catch (Exception $e) { /* table sales absente : aucune vente en cours */ }
+    return false;
 }
 
 // Connexion à la base de données unifiée
@@ -93,6 +124,9 @@ if ($action === 'promote') {
         exit;
     }
 
+    // Libère d'abord les véhicules dont la réservation est arrivée à son terme (archivage automatique, hors transaction)
+    archive_expired_reservations($pdo);
+
     try {
         $pdo->beginTransaction();
 
@@ -130,6 +164,13 @@ if ($action === 'promote') {
             exit;
         }
 
+        // 2 bis) Une vente en cours bloque aussi : on n'active pas une réservation sur un véhicule en cours d'achat
+        if (sale_in_progress($pdo, $car_id, $row['car_name'])) {
+            $pdo->rollBack();
+            echo json_encode(['success' => false, 'message' => 'Impossible : ce véhicule est en cours d\'achat par un autre client. Terminez ou supprimez cette vente d\'abord (onglet Ventes).'], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
         // 3) Anciens dossiers de ce véhicule qui ne bloquent plus (délai dépassé...) : archivés comme le fait « Terminée »,
         //    ce qui libère le car_id (évite l'erreur de clé unique 1062)
         $stmtOld = $pdo->prepare("SELECT id FROM reservations WHERE car_id = ? FOR UPDATE");
@@ -164,11 +205,13 @@ if ($action === 'promote') {
             $row['payment_method']
         ]);
 
+        $newReservationId = (int) $pdo->lastInsertId();
+
         $stmtDelete = $pdo->prepare("DELETE FROM attente WHERE id = ?");
         $stmtDelete->execute([$id]);
 
         $pdo->commit();
-        echo json_encode(['success' => true, 'message' => 'Client promu en réservation active (à vérifier puis à passer en « Réservé »).']);
+        echo json_encode(['success' => true, 'reservation_id' => $newReservationId, 'message' => 'Client promu en réservation active (à vérifier puis à passer en « Réservé »).']);
     } catch (Exception $e) {
         if ($pdo->inTransaction()) { $pdo->rollBack(); }
         echo json_encode(['success' => false, 'message' => 'Erreur lors de la promotion : ' . $e->getMessage()]);

@@ -4,6 +4,8 @@ header('Content-Type: application/json; charset=utf-8');
 
 session_start();
 
+require_once __DIR__ . '/reservation_archive.php';
+
 // Connexion à la base de données
 $host = 'localhost';
 $dbname = 'autonems'; // Remplace par le nom exact de ta base de données
@@ -22,21 +24,29 @@ try {
 
 $action = $_GET['action'] ?? $_POST['action'] ?? '';
 
+// --- PROTECTION ADMIN (même session que booking.php / attente.php / sales.php) ---
+// Seule la liste (action=list) reste publique : le site client en a besoin pour afficher le catalogue.
+// Créer, modifier et supprimer un véhicule sont réservés à l'administrateur connecté.
+function require_admin_session() {
+    if (session_status() === PHP_SESSION_NONE) {
+        session_start();
+    }
+    if (!isset($_SESSION['autonems_admin']) || $_SESSION['autonems_admin'] !== true) {
+        http_response_code(401);
+        echo json_encode(['success' => false, 'message' => 'Accès non autorisé. Veuillez vous connecter en tant qu\'administrateur.']);
+        exit;
+    }
+}
+if (in_array($action, ['create', 'update', 'delete'], true)) {
+    require_admin_session();
+}
+
 // --- 1. LISTER LES VÉHICULES ---
 if ($action === 'list') {
     try {
-        // Libère les véhicules dont la réservation est expirée (sinon dispo reste à 0 pour toujours)
-        try {
-            $nowMs = (int) round(microtime(true) * 1000);
-            $expired = $pdo->prepare("SELECT car_id, car_name FROM reservations WHERE en_cours = 1 AND until_ts <= ?");
-            $expired->execute([$nowMs]);
-            foreach ($expired->fetchAll() as $r) {
-                $pdo->prepare("UPDATE vehicles SET dispo = 1 WHERE LOWER(REPLACE(nom, ' ', '-')) = ? OR nom = ?")
-                    ->execute([$r['car_id'], $r['car_name']]);
-            }
-            $pdo->prepare("UPDATE reservations SET en_cours = 0, statut = 'Terminée' WHERE en_cours = 1 AND until_ts <= ?")
-                ->execute([$nowMs]);
-        } catch (Exception $e) { /* table reservations absente : on ignore */ }
+        // Fin automatique des réservations dont la durée est dépassée : archivage dans « historique »
+        // + véhicule remis à disposition (même traitement que le choix manuel « Terminée »).
+        archive_expired_reservations($pdo);
 
         $stmt = $pdo->query("SELECT * FROM vehicles ORDER BY id DESC");
         $vehicules = $stmt->fetchAll();

@@ -109,6 +109,44 @@ function purchase_in_progress(PDO $pdo, $car_name) {
     return false;
 }
 
+define('RESERVATION_HOLD_MS', 2 * 3600 * 1000); // même délai de blocage que booking.php (dossier « En cours »)
+
+// Derniers chiffres d'un numéro de téléphone (compare « +225 07 00 00 00 » et « 0700000000 »)
+function phone_tail($tel) {
+    $d = preg_replace('/\D+/', '', (string) $tel);
+    return substr($d, -8);
+}
+
+// Pourquoi ce véhicule ne peut pas être acheté pour le moment :
+//  'reserved' = réservation active d'un AUTRE client (Réservé, ou En cours depuis moins de 2 h)
+//  'queue'    = des clients l'attendent déjà dans la file d'attente
+// Le client qui a lui-même réservé le véhicule peut l'acheter (étape « Voulez-vous acheter ce véhicule ? » du site).
+function vehicle_unavailable_reason(PDO $pdo, $car_name, $buyer_tel) {
+    $slug = slugify_name($car_name);
+    if ($slug === '') return null;
+    $nowMs = (int) round(microtime(true) * 1000);
+    $buyerTail = phone_tail($buyer_tel);
+
+    try {
+        $st = $pdo->prepare("SELECT car_id, car_name, client_telephone FROM reservations WHERE en_cours = 1 AND (statut = 'Confirmée' OR (COALESCE(NULLIF(statut, ''), 'En cours') = 'En cours' AND UNIX_TIMESTAMP(created_at) * 1000 + " . RESERVATION_HOLD_MS . " > ?))");
+        $st->execute([$nowMs]);
+        foreach ($st->fetchAll() as $r) {
+            if (slugify_name($r['car_id']) === $slug || slugify_name($r['car_name']) === $slug) {
+                if ($buyerTail !== '' && phone_tail($r['client_telephone']) === $buyerTail) continue;
+                return 'reserved';
+            }
+        }
+    } catch (Exception $e) { /* table reservations absente : rien ne bloque */ }
+
+    try {
+        foreach ($pdo->query("SELECT car_id, car_name FROM attente")->fetchAll() as $r) {
+            if (slugify_name($r['car_id']) === $slug || slugify_name($r['car_name']) === $slug) return 'queue';
+        }
+    } catch (Exception $e) { /* table attente absente : pas de file */ }
+
+    return null;
+}
+
 $action = $_GET['action'] ?? $_POST['action'] ?? '';
 
 // --- PROTECTION ADMIN (même session que booking.php / attente.php) ---
@@ -161,6 +199,20 @@ if ($action === 'create') {
         echo json_encode(['success' => false, 'code' => 'ALREADY_PURCHASING',
             'message' => "Ce véhicule est déjà en cours d'achat par un autre client."]);
         exit;
+    }
+
+    // Véhicule réservé par un autre client, ou attendu par la file d'attente : il n'est pas achetable pour le moment.
+    // (L'enregistrement manuel depuis le tableau de bord n'est pas concerné.)
+    if (isset($_POST['car_details'])) {
+        $reason = vehicle_unavailable_reason($pdo, $car_name, $buyer_telephone);
+        if ($reason) {
+            echo json_encode(['success' => false, 'code' => 'VEHICLE_UNAVAILABLE',
+                'message' => $reason === 'queue'
+                    ? "Des clients attendent déjà ce véhicule : il leur est proposé en priorité, vous ne pouvez pas l'acheter pour le moment."
+                    : "Ce véhicule est actuellement réservé par un autre client : il n'est pas disponible à l'achat pour le moment."],
+                JSON_UNESCAPED_UNICODE);
+            exit;
+        }
     }
 
     // Photos enregistrées dans uploads/ids/ (dossier protégé, noms aléatoires, types contrôlés).

@@ -1,0 +1,200 @@
+/* ============================================================ */
+/* THÈME JOUR / NUIT + NOUVEAU HERO (photo de voiture)           */
+/* Fichier à charger APRÈS dashboard.css : il ne modifie rien    */
+/* dans dashboard.css. Mode nuit = rendu actuel (par défaut).    */
+/* ============================================================ */
+
+/* ---------- 1. HERO : la voiture devient vraiment visible ---------- */
+body.admin-dashboard {
+    --hero-img: url('https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&w=1600&q=75');
+    --hero-shade: linear-gradient(90deg, rgba(8, 12, 22, 0.90) 0%, rgba(8, 12, 22, 0.55) 50%, rgba(8, 12, 22, 0.18) 100%);
+    background: #0b1120;
+}
+body.admin-dashboard::before {
+    top: 0; left: 0; right: 0; bottom: auto;
+    height: clamp(250px, 44vh, 440px);
+    background: var(--hero-shade), var(--hero-img) center 55% / cover no-repeat;
+    -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 55%, transparent 100%);
+            mask-image: linear-gradient(to bottom, #000 0%, #000 55%, transparent 100%);
+    transform-origin: 60% 40%;
+    animation: heroDrift 26s ease-in-out infinite alternate;
+}
+@keyframes heroDrift {
+    from { transform: scale(1) translateZ(0); }
+    to   { transform: scale(1.07) translateZ(0); }
+}
+/* La voiture respire au-dessus des cartes : un peu d'espace en haut de chaque page */
+.admin-section { padding-top: clamp(6px, 4vh, 40px); }
+#section-overview { padding-top: clamp(30px, 13vh, 130px); }
+.admin-section h1 { filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.55)); }
+
+/* ---------- 2. Bouton jour / nuit ---------- */
+.theme-toggle {
+    width: 100%;
+    margin-top: 6px;
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    padding: 12px 14px;
+    border-radius: 10px;
+    border: 1px solid rgba(56, 189, 248, 0.35);
+    background: rgba(30, 41, 59, 0.85);
+    color: #e2e8f0;
+    font: inherit; font-weight: 600; font-size: 0.92rem;
+    cursor: pointer;
+    transition: background 0.2s ease, border-color 0.2s ease, transform 0.15s ease;
+}
+.theme-toggle:hover { border-color: #38bdf8; background: rgba(51, 65, 85, 0.95); }
+.theme-toggle .tt-icon { font-size: 1.15rem; display: inline-block; transition: transform 0.5s cubic-bezier(.2,.8,.2,1); }
+.theme-toggle:hover .tt-icon { transform: rotate(25deg) scale(1.15); }
+
+/* Transition douce pendant le changement de thème uniquement */
+html.theme-anim body, html.theme-anim body *, html.theme-anim body *::before {
+    transition: background-color 0.35s ease, color 0.35s ease, border-color 0.35s ease, box-shadow 0.35s ease !important;
+}
+
+/* ---------- 3. MODE JOUR ---------- */
+html[data-theme="light"] body.admin-dashboard {
+    color-scheme: light;
+    color: #0f172a;
+    background: #eaf1f8;
+    --hero-shade: linear-gradient(90deg, rgba(234, 241, 248, 0.88) 0%, rgba(234, 241, 248, 0.42) 55%, rgba(234, 241, 248, 0.10) 100%);
+}
+html[data-theme="light"] .admin-section h1 {
+    background: linear-gradient(90deg, #0f172a 0%, #0369a1 100%);
+    -webkit-background-clip: text; background-clip: text;
+    filter: none;
+}
+html[data-theme="light"] .admin-section p { color: #334155; text-shadow: none; }
+
+/* Menu latéral */
+html[data-theme="light"] .admin-sidebar {
+    background: rgba(255, 255, 255, 0.97);
+    border-right: 1px solid rgba(2, 132, 199, 0.22);
+    box-shadow: 4px 0 24px rgba(15, 23, 42, 0.10);
+    color: #0f172a;
+}
+html[data-theme="light"] .admin-sidebar h2 { color: #0369a1; text-shadow: none; }
+html[data-theme="light"] .admin-sidebar nav a { color: #334155; }
+html[data-theme="light"] .admin-sidebar nav a:hover,
+html[data-theme="light"] .admin-sidebar nav a.active { color: #fff; }
+html[data-theme="light"] .theme-toggle { background: #f1f5f9; color: #0f172a; border-color: rgba(2, 132, 199, 0.35); }
+html[data-theme="light"] .theme-toggle:hover { background: #e2e8f0; border-color: #0284c7; }
+
+/* Statistiques et cartes */
+html[data-theme="light"] .stat-card,
+html[data-theme="light"] .card-box {
+    background: rgba(255, 255, 255, 0.96);
+    border-color: rgba(2, 132, 199, 0.22);
+    box-shadow: 0 10px 28px rgba(15, 23, 42, 0.10), inset 0 1px 0 #fff;
+    color: #0f172a;
+}
+html[data-theme="light"] .stat-card:hover { border-color: #0284c7; }
+html[data-theme="light"] .stat-label { color: #334155; }
+html[data-theme="light"] .stat-value { color: #0284c7; }
+html[data-theme="light"] .stat-card.green .stat-value { color: #059669; }
+html[data-theme="light"] .stat-card.orange .stat-value { color: #d97706; }
+html[data-theme="light"] .stat-card.purple .stat-value { color: #7c3aed; }
+html[data-theme="light"] .stat-card.cyan .stat-value { color: #0891b2; }
+
+/* Titres colorés posés en ligne dans le HTML */
+html[data-theme="light"] #section-reservations h2[style*="38bdf8"] { color: #0284c7 !important; }
+html[data-theme="light"] #section-reservations h2[style*="6b7280"] { color: #475569 !important; }
+
+/* Boutons */
+html[data-theme="light"] .btn-secondary { background: #e2e8f0; color: #0f172a; border-color: rgba(15, 23, 42, 0.15); }
+html[data-theme="light"] .btn-secondary:hover { background: #cbd5e1; border-color: #0284c7; }
+
+/* Tableaux */
+html[data-theme="light"] table.data-table th { background: #e6eff8; color: #0369a1; }
+html[data-theme="light"] table.data-table td { color: #0f172a; border-bottom-color: rgba(15, 23, 42, 0.10); }
+html[data-theme="light"] table.data-table tbody tr:nth-child(even) { background: rgba(15, 23, 42, 0.025); }
+html[data-theme="light"] table.data-table tbody tr:hover { background: rgba(2, 132, 199, 0.07); }
+html[data-theme="light"] table.data-table tbody tr.empty-row td { background: #f1f5f9 !important; color: #0369a1 !important; }
+html[data-theme="light"] table.data-table td a { color: #0369a1; }
+html[data-theme="light"] table.data-table img.table-thumb { border-color: rgba(15, 23, 42, 0.15); }
+html[data-theme="light"] table.data-table .status-select { background: #fff; color: #0f172a; border-color: rgba(2, 132, 199, 0.4); }
+html[data-theme="light"] .badge { background: rgba(16, 185, 129, 0.14); color: #047857; border-color: rgba(5, 150, 105, 0.4); }
+html[data-theme="light"] .badge.badge-off { background: rgba(239, 68, 68, 0.12); color: #dc2626; border-color: rgba(220, 38, 38, 0.4); }
+html[data-theme="light"] .verify-todo { background: rgba(245, 158, 11, 0.16); color: #b45309; border-color: rgba(180, 83, 9, 0.4); }
+html[data-theme="light"] .verify-ok { background: rgba(16, 185, 129, 0.14); color: #047857; border-color: rgba(5, 150, 105, 0.4); }
+html[data-theme="light"] .btn-verify { background: rgba(2, 132, 199, 0.10); color: #075985; border-color: rgba(2, 132, 199, 0.45); }
+html[data-theme="light"] .btn-verify:hover { background: rgba(2, 132, 199, 0.22); }
+
+/* Fenêtres modales */
+html[data-theme="light"] .veh-modal-overlay.open,
+html[data-theme="light"] .modal-overlay.open { background: rgba(15, 23, 42, 0.50) !important; }
+html[data-theme="light"] .veh-modal {
+    background: #fff !important;
+    color: #0f172a !important;
+    border-color: rgba(2, 132, 199, 0.3);
+    box-shadow: 0 25px 50px rgba(15, 23, 42, 0.25) !important;
+}
+html[data-theme="light"] .veh-modal h2 { color: #0369a1 !important; }
+html[data-theme="light"] .veh-modal label,
+html[data-theme="light"] .settings-form-group label { color: #334155 !important; }
+html[data-theme="light"] .veh-modal input,
+html[data-theme="light"] .veh-modal select,
+html[data-theme="light"] .veh-modal textarea,
+html[data-theme="light"] .settings-form-group input {
+    background-color: #f8fafc !important;
+    border-color: rgba(15, 23, 42, 0.20) !important;
+    color: #0f172a !important;
+}
+html[data-theme="light"] .veh-modal input:focus,
+html[data-theme="light"] .veh-modal select:focus,
+html[data-theme="light"] .veh-modal textarea:focus,
+html[data-theme="light"] .settings-form-group input:focus { border-color: #0284c7 !important; box-shadow: 0 0 10px rgba(2, 132, 199, 0.25) !important; }
+html[data-theme="light"] .veh-modal-close { background: rgba(15, 23, 42, 0.08); color: #334155; }
+html[data-theme="light"] .veh-modal-close:hover { background: #ef4444; color: #fff; }
+html[data-theme="light"] select option { background: #fff; color: #0f172a; }
+html[data-theme="light"] img.img-preview { border-color: rgba(15, 23, 42, 0.2); }
+
+/* Fiche véhicule */
+html[data-theme="light"] .veh-detail-head h3,
+html[data-theme="light"] .veh-detail-value { color: #0f172a; }
+html[data-theme="light"] .veh-detail-item { background: #f1f5f9; border-color: rgba(15, 23, 42, 0.10); }
+html[data-theme="light"] .veh-detail-label,
+html[data-theme="light"] .veh-detail-sub { color: #0369a1; }
+html[data-theme="light"] .veh-detail-desc { color: #334155; }
+html[data-theme="light"] .veh-detail-equip li { background: rgba(2, 132, 199, 0.10); color: #075985; border-color: rgba(2, 132, 199, 0.35); }
+html[data-theme="light"] .veh-detail-reserv { color: #92400e; background: rgba(245, 158, 11, 0.14); border-color: rgba(180, 83, 9, 0.35); }
+html[data-theme="light"] .veh-detail-dates { color: #64748b; }
+html[data-theme="light"] .veh-detail-img { border-color: rgba(15, 23, 42, 0.15); }
+
+/* Panneau WhatsApp (créé par dashboard.js) */
+html[data-theme="light"] .wa-overlay { background: rgba(15, 23, 42, 0.5); }
+html[data-theme="light"] .wa-card { background: #fff; color: #0f172a; border-color: rgba(2, 132, 199, 0.3); box-shadow: 0 25px 50px rgba(15, 23, 42, 0.25); }
+html[data-theme="light"] .wa-card h3 { color: #047857; }
+html[data-theme="light"] .wa-to, html[data-theme="light"] .wa-label { color: #334155; }
+html[data-theme="light"] .wa-hint { color: #64748b; }
+html[data-theme="light"] .wa-card textarea { background: #f8fafc; color: #0f172a; border-color: rgba(15, 23, 42, 0.2); }
+html[data-theme="light"] .wa-warn { color: #b91c1c; }
+html[data-theme="light"] .wa-btn-secondary { background: #e2e8f0; color: #0f172a; }
+html[data-theme="light"] .wa-sent-note { color: #047857; }
+
+/* Barres de défilement */
+html[data-theme="light"] .admin-content, html[data-theme="light"] .data-table-container,
+html[data-theme="light"] .veh-modal, html[data-theme="light"] .admin-sidebar nav { scrollbar-color: rgba(2, 132, 199, 0.45) transparent; }
+html[data-theme="light"] ::-webkit-scrollbar-thumb { background: rgba(2, 132, 199, 0.4); background-clip: padding-box; }
+
+/* ---------- 4. Tablette (menu réduit à des icônes) ---------- */
+@media (max-width: 1100px) and (min-width: 769px) {
+    .theme-toggle { padding: 13px 0; }
+    .theme-toggle .tt-label { display: none; }
+}
+
+/* ---------- 5. Mobile ---------- */
+@media (max-width: 768px) {
+    body.admin-dashboard::before { height: 230px; }
+    #section-overview { padding-top: 18px; }
+    .theme-toggle { order: 2; width: auto; margin: 0; padding: 8px 12px; font-size: 0.8rem; }
+    html[data-theme="light"] .admin-sidebar nav a:not(.active):not(:hover) { background: #f1f5f9; border-color: rgba(15, 23, 42, 0.10); }
+    html[data-theme="light"] .admin-sidebar nav a.active { background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); }
+    html[data-theme="light"] .admin-sidebar { border-bottom: 1px solid rgba(2, 132, 199, 0.22); box-shadow: 0 6px 18px rgba(15, 23, 42, 0.12); }
+}
+@media (max-width: 900px) {
+    html[data-theme="light"] table.data-table tbody tr,
+    html[data-theme="light"] table.data-table tbody tr:nth-child(even),
+    html[data-theme="light"] table.data-table tbody tr:hover { background: #f8fafc; border-color: rgba(2, 132, 199, 0.22); }
+    html[data-theme="light"] table.data-table td::before { color: #0369a1; }
+    html[data-theme="light"] table.data-table tbody tr.empty-row { background: transparent; }
+}
