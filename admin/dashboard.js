@@ -384,13 +384,19 @@ function updateStats() {
     const total = currentVehicules.length;
     const dispo = currentVehicules.filter(v => v.dispo).length;
     const enCours = currentReservations.filter(r => !r.hold_expired && (r.en_cours || r.statut === 'En cours' || r.statut === 'Confirmée')).length;
-    const totalReservations = currentReservations.length;
+    // Total des réservations reçues = dossiers encore dans « reservations » + dossiers archivés dans « historique »
+    // (un dossier terminé quitte « reservations » : sans l'historique, le total baisserait à chaque fin de location)
+    const activeRes = currentReservations.filter(r => (r.statut || '') !== 'liste_attente').length;
+    const archivedRes = currentHistorique.length;
+    const totalReservations = activeRes + archivedRes;
     const totalSales = currentSales.length;
  
     document.getElementById('statTotal').textContent = total;
     document.getElementById('statDispo').textContent = dispo;
     document.getElementById('statEnCours').textContent = enCours;
     document.getElementById('statReservations').textContent = totalReservations;
+    const statResDetail = document.getElementById('statReservationsDetail');
+    if (statResDetail) statResDetail.textContent = `${activeRes} en cours · ${archivedRes} dans l'historique`;
     
     const statVentes = document.getElementById('statVentes');
     if (statVentes) statVentes.textContent = totalSales;
@@ -786,7 +792,7 @@ async function loadHistorique() {
         renderHistorique();
     } catch (err) {
         console.error(err);
-        if (tbody) tbody.innerHTML = `<tr class="empty-row"><td colspan="8">Erreur de chargement de l'historique.</td></tr>`;
+        if (tbody) tbody.innerHTML = `<tr class="empty-row"><td colspan="9">Erreur de chargement de l'historique.</td></tr>`;
     }
 }
 
@@ -794,7 +800,7 @@ function renderHistorique() {
     const tbody = document.getElementById('historyTableBody');
     if (!tbody) return;
     if (!currentHistorique.length) {
-        tbody.innerHTML = `<tr class="empty-row"><td colspan="8">Aucune réservation dans l'historique.</td></tr>`;
+        tbody.innerHTML = `<tr class="empty-row"><td colspan="9">Aucune réservation dans l'historique.</td></tr>`;
         return;
     }
     tbody.innerHTML = currentHistorique.map(r => {
@@ -816,9 +822,37 @@ function renderHistorique() {
                 <td>${permisCell}</td>
                 <td><span class="badge badge-off">Terminée</span></td>
                 <td>${r.created_at ? new Date(r.created_at).toLocaleString('fr-FR') : '—'}</td>
+                <td>
+                    <button type="button" class="btn-icon btn-delete-history" data-id="${escHtml(r.id)}" title="Supprimer de l'historique" style="background:#ef4444; color:#fff; border:none; padding:6px 10px; border-radius:6px; cursor:pointer;" aria-label="Supprimer de l'historique">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+                    </button>
+                </td>
             </tr>
         `;
     }).join('');
+
+    tbody.querySelectorAll('.btn-delete-history').forEach(btn => {
+        btn.addEventListener('click', () => deleteHistorique(btn.dataset.id));
+    });
+}
+
+// Supprime définitivement une ligne de l'historique (table « historique ») via booking.php
+async function deleteHistorique(id) {
+    const confirmed = await showConfirmDialog("Supprimer définitivement cette ligne de l'historique ? Cette action est irréversible.");
+    if (!confirmed) return;
+    try {
+        const res = await fetch(API_BASE + 'booking.php', {
+            method: 'POST',
+            body: new URLSearchParams({ action: 'delete_history', id })
+        });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.message || 'Erreur inconnue');
+        lastHistoriqueSig = '';
+        await loadHistorique();
+        updateStats();
+    } catch (err) {
+        alert('Erreur lors de la suppression : ' + err.message);
+    }
 }
 
 // Fonction pour charger la file d'attente indépendante depuis attente.php
@@ -871,7 +905,38 @@ function renderWaitingList() {
         return;
     }
 
-    tbody.innerHTML = currentAttente.map(r => {
+    // Une section par véhicule : un en-tête (nom, nombre de clients, état) puis les clients dans l'ordre d'arrivée (rang)
+    const groups = new Map();
+    currentAttente.forEach(a => {
+        const k = String(a.car_id || a.car_name || '');
+        if (!groups.has(k)) groups.set(k, []);
+        groups.get(k).push(a);
+    });
+    const ordered = [];
+    groups.forEach(list => {
+        list.sort((x, y) => (Number(x.rang) || 0) - (Number(y.rang) || 0));
+        ordered.push({ header: true, list });
+        list.forEach(a => ordered.push({ header: false, r: a }));
+    });
+
+    tbody.innerHTML = ordered.map(item => {
+        if (item.header) {
+            const first = item.list[0];
+            const n = item.list.length;
+            const taken = isCarBlocked(first.car_id);
+            const etat = taken
+                ? `<span style="font-weight:600; font-size:0.82rem; opacity:0.85;">🔒 Véhicule actuellement pris</span>`
+                : `<span style="font-weight:600; font-size:0.82rem; opacity:0.85;">✅ Véhicule libre : le n°1 peut être activé</span>`;
+            return `
+            <tr class="wait-group-row">
+                <td colspan="9" style="padding:12px 16px; background:rgba(217,119,6,0.13); border-top:2px solid rgba(217,119,6,0.45);">
+                    🚗 <strong>${escHtml(first.car_name || 'Véhicule')}</strong>
+                    <span style="margin:0 10px; opacity:0.6;">•</span>${n} client${n > 1 ? 's' : ''} en attente
+                    <span style="margin:0 10px; opacity:0.6;">•</span>${etat}
+                </td>
+            </tr>`;
+        }
+        const r = item.r;
         const idCardPath = r.id_card || r.identity_doc;
         const licensePath = r.driver_license_file || r.driver_license_path;
 

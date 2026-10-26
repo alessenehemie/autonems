@@ -12,7 +12,7 @@
         root.setAttribute('data-theme', theme);
         var meta = document.querySelector('meta[name="theme-color"]');
         if (!meta) { meta = document.createElement('meta'); meta.name = 'theme-color'; document.head.appendChild(meta); }
-        meta.content = theme === 'light' ? '#eaf1f8' : '#0b1120';
+        meta.content = theme === 'light' ? '#f5f8fc' : '#0b1120';
         var btn = document.getElementById('themeToggle');
         if (btn) {
             var light = theme === 'light';
@@ -32,16 +32,10 @@
         var btn = document.createElement('button');
         btn.type = 'button';
         btn.id = 'themeToggle';
-        btn.className = 'theme-toggle';
-        
-        /* Styles pour positionner le bouton en haut à droite, hors des onglets */
-        btn.style.position = 'fixed';
-        btn.style.top = '20px';
-        btn.style.right = '25px';
-        btn.style.zIndex = '99999';
-        btn.style.width = 'auto';
-        btn.style.boxShadow = '0 4px 15px rgba(0, 0, 0, 0.3)';
-        
+        /* Le placement (haut à droite sur ordinateur, pastille en bas sur mobile) est géré
+           par dashboard-theme.css via la classe « theme-toggle-fab » : plus de styles en ligne. */
+        btn.className = 'theme-toggle theme-toggle-fab';
+
         btn.innerHTML = '<span class="tt-icon" aria-hidden="true"></span><span class="tt-label"></span>';
         
         // On l'ajoute directement au body et non plus à la sidebar

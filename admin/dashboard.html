@@ -6,6 +6,7 @@
     <title>AutoNems - Tableau de Bord Administrateur</title>
     <link rel="stylesheet" href="dashboard.css">
     <link rel="stylesheet" href="dashboard-theme.css">
+    <script src="dashboard-theme.js"></script>
    
 </head>
 <body class="admin-dashboard">
@@ -45,6 +46,7 @@
                 <div class="stat-card purple">
                     <div class="stat-value" id="statReservations">–</div>
                     <div class="stat-label">Réservations reçues (total)</div>
+                    <div class="stat-label" id="statReservationsDetail" style="font-size: 0.8rem; opacity: 0.8;"></div>
                 </div>
                 <div class="stat-card cyan" style="border-color: #06b6d4;">
                     <div class="stat-value" id="statVentes" style="color: #06b6d4;">–</div>
@@ -189,10 +191,11 @@
                                 <th>Permis (Numéro & Photo)</th>
                                 <th>Statut</th>
                                 <th>Reçue le</th>
+                                <th>Actions</th> <!-- NOUVEAU : colonne du bouton de suppression -->
                             </tr>
                         </thead>
                         <tbody id="historyTableBody">
-                            <tr class="empty-row"><td colspan="8">Chargement de l'historique...</td></tr>
+                            <tr class="empty-row"><td colspan="9">Chargement de l'historique...</td></tr> <!-- NOUVEAU : colspan 8 -> 9 -->
                         </tbody>
                     </table>
                 </div>
@@ -532,7 +535,6 @@
     </div>
 
     <script src="dashboard.js"></script>
-     <script src="dashboard-theme.js"></script>
-
+   
 </body>
 </html>

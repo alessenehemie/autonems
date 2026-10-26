@@ -134,7 +134,7 @@ function require_admin_session() {
         exit;
     }
 }
-if (in_array($action, ['list', 'update_status', 'set_verified', 'delete'], true)) {
+if (in_array($action, ['list', 'update_status', 'set_verified', 'delete', 'delete_history'], true)) {
     require_admin_session();
 }
 
@@ -703,6 +703,53 @@ if ($action === 'delete') {
         echo json_encode(['success' => true, 'message' => 'Réservation supprimée et véhicule libéré.']);
     } catch (Exception $e) {
         if ($pdo->inTransaction()) {$pdo->rollBack(); }
+        echo json_encode(['success' => false, 'message' => 'Erreur lors de la suppression : ' . $e->getMessage()]);
+    }
+    exit;
+}
+
+// --- SUPPRIMER UNE LIGNE DE L'HISTORIQUE (admin) ---
+if ($action === 'delete_history') {
+    $id = $_POST['id'] ?? null;
+    if (empty($id) || !ctype_digit((string) $id)) {
+        echo json_encode(['success' => false, 'message' => 'ID manquant ou invalide.']);
+        exit;
+    }
+    try {
+        if ($pdo->query("SHOW TABLES LIKE 'historique'")->rowCount() == 0) {
+            echo json_encode(['success' => false, 'message' => 'Historique introuvable.']);
+            exit;
+        }
+        $stmtGet = $pdo->prepare("SELECT id_card, driver_license_file FROM historique WHERE id = ?");
+        $stmtGet->execute([$id]);
+        $row = $stmtGet->fetch();
+        if (!$row) {
+            echo json_encode(['success' => false, 'message' => 'Ligne introuvable (déjà supprimée ?).']);
+            exit;
+        }
+
+        $pdo->prepare("DELETE FROM historique WHERE id = ?")->execute([$id]);
+
+        // Supprime aussi les photos CNI / permis, mais seulement si aucun autre dossier ne les utilise encore
+        foreach ([$row['id_card'], $row['driver_license_file']] as $path) {
+            if (!$path) continue;
+            $used = 0;
+            foreach ([['historique', 'id_card'], ['historique', 'driver_license_file'],
+                      ['reservations', 'id_card'], ['reservations', 'driver_license_file'],
+                      ['attente', 'id_card'], ['attente', 'driver_license_file'],
+                      ['sales', 'id_card_path'], ['sales', 'driver_license_path']] as [$tbl, $col]) {
+                try {
+                    if ($pdo->query("SHOW TABLES LIKE '$tbl'")->rowCount() == 0) continue;
+                    $c = $pdo->prepare("SELECT COUNT(*) FROM `$tbl` WHERE `$col` = ?");
+                    $c->execute([$path]);
+                    $used += (int) $c->fetchColumn();
+                } catch (Exception $e) { $used++; } // en cas de doute on garde le fichier
+            }
+            if ($used === 0) { remove_uploaded($path); }
+        }
+
+        echo json_encode(['success' => true, 'message' => "Ligne supprimée de l'historique."]);
+    } catch (Exception $e) {
         echo json_encode(['success' => false, 'message' => 'Erreur lors de la suppression : ' . $e->getMessage()]);
     }
     exit;
