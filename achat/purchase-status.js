@@ -13,7 +13,7 @@
 (function () {
     'use strict';
 
-    var API_URL = 'api/sales.php?action=public_list';
+    var API_URL = '../api/sales.php?action=public_list';
     var POLL_MS = 15000;
     var LOCK_MSG = "Ce véhicule est en cours d'achat : la réservation et l'achat sont momentanément indisponibles.";
     var BADGE_LABEL = "En cours d'achat";
