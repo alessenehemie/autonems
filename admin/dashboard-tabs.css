@@ -1,0 +1,14 @@
+/* Onglets « Réservations » et « Ventes » séparés.
+   À charger après dashboard.css et dashboard-theme.css. Ne modifie aucun de vos fichiers. */
+
+/* Icône du nouvel onglet « Ventes » (les autres onglets ont déjà la leur dans dashboard.css) */
+.tab-link[data-target="section-sales"]::before { content: '💰'; }
+
+/* Mêmes règles mobiles que celles de #section-reservations (en-tête : bouton sous le titre, pleine largeur) */
+@media (max-width: 768px) {
+    #section-sales > div[style*="display: flex"] { flex-direction: column; align-items: flex-start !important; gap: 12px; }
+    #section-sales > div[style*="display: flex"] .btn-primary { width: 100%; }
+}
+@media (max-width: 900px) {
+    #section-sales > div[style*="display: flex"] { flex-direction: column; align-items: flex-start !important; gap: 12px; }
+}

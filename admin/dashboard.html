@@ -6,6 +6,7 @@
     <title>AutoNems - Tableau de Bord Administrateur</title>
     <link rel="stylesheet" href="dashboard.css">
     <link rel="stylesheet" href="dashboard-theme.css">
+    <link rel="stylesheet" href="dashboard-tabs.css">
     <script src="dashboard-theme.js"></script>
    
 </head>
@@ -17,7 +18,8 @@
             <nav>
                 <a href="#" class="tab-link active" data-target="section-overview">Vue d'ensemble</a>
                 <a href="#" class="tab-link" data-target="section-stock">Gestion du Stock</a>
-                <a href="#" class="tab-link" data-target="section-reservations">Réservations & Ventes</a>
+                <a href="#" class="tab-link" data-target="section-reservations">Réservations</a>
+                <a href="#" class="tab-link" data-target="section-sales">Ventes</a>
                 <a href="#" class="tab-link" data-target="section-settings">Paramètres du Compte</a>
             </nav>
         </div>
@@ -108,7 +110,7 @@
             </div>
         </section>
 
-        <!-- ONGLET 3 : RÉSERVATIONS & VENTES -->
+        <!-- ONGLET 3 : RÉSERVATIONS -->
         <section id="section-reservations" class="admin-section">
             
             <!-- SECTION : FILE D'ATTENTE -->
@@ -201,10 +203,15 @@
                 </div>
             </div>
 
+        </section>
+
+        <!-- ONGLET 4 : VENTES -->
+        <section id="section-sales" class="admin-section">
+
             <!-- Section et tableau des Voitures Vendues -->
-            <div style="margin-top: 40px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
                 <div>
-                    <h2 style="color: #38bdf8; font-size: 1.5rem; margin-bottom: 5px;">Voitures Vendues</h2>
+                    <h1>Voitures Vendues</h1>
                     <p style="margin-bottom: 0;">Coordonnées des véhicules vendus et de leurs acheteurs.</p>
                 </div>
                 <button class="btn-primary" id="openAddSaleModalBtn">+ Enregistrer une vente</button>
@@ -235,7 +242,7 @@
             </div>
         </section>
 
-        <!-- ONGLET 4 : PARAMÈTRES -->
+        <!-- ONGLET 5 : PARAMÈTRES -->
         <section id="section-settings" class="admin-section">
             <h1>Sécurité et Paramètres</h1>
             <p>Modifie tes informations de connexion administrateur.</p>

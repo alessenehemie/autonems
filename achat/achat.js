@@ -22,18 +22,65 @@ const validState = {
     paymentMethod: false 
 };
 
+/* ---------- Messages : visibles seulement quand il y a un problème, effacés dès qu'il est réglé ---------- */
 function setFieldError(inputEl, errorEl, message) {
+    const alreadyShown = !errorEl.hidden && errorEl.textContent === message && inputEl.classList.contains('invalid');
     inputEl.classList.add('invalid');
     inputEl.classList.remove('valid');
+    errorEl.classList.remove('is-info');
     errorEl.textContent = message;
     errorEl.hidden = false;
-    inputEl.classList.add('shake');
-    setTimeout(() => inputEl.classList.remove('shake'), 400);
+    if (!alreadyShown) { // pas de secousse à chaque frappe tant que le même message reste affiché
+        inputEl.classList.add('shake');
+        setTimeout(() => inputEl.classList.remove('shake'), 400);
+    }
+}
+// Information neutre (ex. « analyse en cours ») : ce n'est pas une erreur, donc ni rouge ni ⚠
+function setFieldInfo(inputEl, errorEl, message) {
+    inputEl.classList.remove('invalid', 'valid');
+    errorEl.classList.add('is-info');
+    errorEl.textContent = message;
+    errorEl.hidden = false;
 }
 function setFieldValid(inputEl, errorEl) {
     inputEl.classList.remove('invalid');
     inputEl.classList.add('valid');
+    errorEl.classList.remove('is-info');
     errorEl.hidden = true;
+}
+
+// Encart d'alerte du formulaire (refus du serveur : véhicule pris, dossier refusé...) : il disparaît dès que le client modifie un champ
+function injectAlertStyles() {
+    if (document.getElementById('achat-alert-style')) return;
+    const st = document.createElement('style');
+    st.id = 'achat-alert-style';
+    st.textContent =
+        '.field-error.is-info{color:var(--text-muted,#64748b);font-weight:500}' +
+        '.field-error.is-info::before{content:"\u23F3"}' +
+        '.form-alert{display:flex;gap:10px;align-items:flex-start;margin:0 0 16px;padding:12px 14px;border-radius:10px;' +
+        'background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;font-size:.9rem;font-weight:600;line-height:1.4}' +
+        '.form-alert::before{content:"\u26A0"}';
+    document.head.appendChild(st);
+}
+function showFormAlert(message) {
+    injectAlertStyles();
+    const form = document.getElementById('purchaseForm');
+    if (!form) { alert(message); return; }
+    let box = document.getElementById('purchaseFormAlert');
+    if (!box) {
+        box = document.createElement('div');
+        box.id = 'purchaseFormAlert';
+        box.className = 'form-alert';
+        box.setAttribute('role', 'alert');
+        form.insertBefore(box, form.firstChild);
+    }
+    box.textContent = message;
+    box.hidden = false;
+    box.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+function hideFormAlert() {
+    const box = document.getElementById('purchaseFormAlert');
+    if (box && !box.hidden) box.hidden = true;
 }
 
 function validateFullName() {
@@ -313,10 +360,12 @@ async function crossCheckDocuments(kind) {
 }
 
 /* ---------- VALIDATION DE LA PHOTO DE LA CNI AVEC TESSERACT.JS ---------- */
+let idFileCheckId = 0;
 async function validateIdCardFile() {
     const el = document.getElementById('idCardFile');
     const errorEl = document.getElementById('idCardFileError');
     const textEl = document.getElementById('idCard');
+    const myCheck = ++idFileCheckId; // une nouvelle vérification rend périmées celles encore en cours
 
     if (el.files.length === 0) {
         el.classList.remove('invalid', 'valid');
@@ -347,23 +396,25 @@ async function validateIdCardFile() {
         return;
     }
 
-    // Affichage d'un message d'attente pendant l'analyse OCR
-    errorEl.hidden = false;
-    errorEl.textContent = "Analyse automatique de la photo en cours...";
-    el.classList.remove('valid', 'invalid');
+    // Message d'attente (information neutre) pendant l'analyse OCR ; le bouton reste bloqué
+    setFieldInfo(el, errorEl, "Analyse automatique de la photo en cours...");
+    validState.idCardFile = false;
+    refreshSubmitState();
 
     try {
-        // Lancement de Tesseract en arrière-plan sur l'image sélectionnée
         const file = el.files[0];
-        // Vérification si le numéro saisi correspond au texte détecté sur l'image (lecture tolérante)
+        // Le numéro saisi correspond-il au texte détecté sur l'image ? (lecture tolérante)
         const matches = await ocrMatchesNumber(file, textEl.value);
+        if (myCheck !== idFileCheckId) return; // résultat périmé : une saisie plus récente a relancé la vérification
         if (matches) {
             const crossError = await crossCheckDocuments('identity');
+            if (myCheck !== idFileCheckId) return;
             if (crossError) {
                 setFieldError(el, errorEl, crossError);
                 validState.idCardFile = false;
             } else {
                 const nameOk = await ocrMatchesName(file, document.getElementById('fullName').value);
+                if (myCheck !== idFileCheckId) return;
                 if (nameOk) {
                     setFieldValid(el, errorEl);
                     validState.idCardFile = true;
@@ -377,6 +428,7 @@ async function validateIdCardFile() {
             validState.idCardFile = false;
         }
     } catch (err) {
+        if (myCheck !== idFileCheckId) return;
         console.error("Erreur OCR :", err);
         setFieldError(el, errorEl, ocrErrorMessage(err));
         validState.idCardFile = false;
@@ -449,9 +501,7 @@ async function validateDriverLicenseFile() {
     }
 
     // Message d'attente pendant l'analyse OCR (le bouton reste bloqué)
-    errorEl.hidden = false;
-    errorEl.textContent = "Analyse automatique de la photo du permis en cours...";
-    el.classList.remove('valid', 'invalid');
+    setFieldInfo(el, errorEl, "Analyse automatique de la photo du permis en cours...");
     validState.driverLicenseFile = false;
     refreshSubmitState();
 
@@ -497,6 +547,19 @@ function validatePayment() {
     setFieldValid(el, errorEl); validState.paymentMethod = true;
 }
 
+function debounce(fn, ms) { let t; return function () { clearTimeout(t); t = setTimeout(fn, ms); }; }
+const revalidatePhotosSoon = debounce(() => { validateIdCardFile(); validateDriverLicenseFile(); }, 400);
+// Pendant la saisie d'un champ texte : on efface tout de suite l'ancien résultat des photos (il n'est plus fiable),
+// annule les analyses en cours, puis on relance la vérification 0,4 s après la dernière frappe.
+function photosPending() {
+    [['idCardFile', 'idCardFileError', 'idCardFile'], ['driverLicenseFile', 'driverLicenseFileError', 'driverLicenseFile']].forEach(([fid, eid, key]) => {
+        const f = document.getElementById(fid), e = document.getElementById(eid);
+        if (f && e && f.files.length) { f.classList.remove('invalid', 'valid'); e.hidden = true; validState[key] = false; }
+    });
+    idFileCheckId++; licenseFileCheckId++;
+    revalidatePhotosSoon();
+}
+
 function refreshSubmitState() {
     const allValid = Object.values(validState).every(Boolean);
     const btn = document.getElementById('submitBtn');
@@ -527,6 +590,7 @@ function closeAchatModal() {
 }
 
 document.addEventListener("DOMContentLoaded", function () {
+    injectAlertStyles();
     const urlParams = new URLSearchParams(window.location.search);
     const carParam = urlParams.get('car');
     const imgParam = urlParams.get('img');
@@ -583,8 +647,8 @@ document.addEventListener("DOMContentLoaded", function () {
     const paymentEl = document.getElementById('paymentMethod');
 
     if (fullNameEl) {
-        fullNameEl.addEventListener('input', () => { validateFullName(); validateIdCardFile(); validateDriverLicenseFile(); refreshSubmitState(); });
-        fullNameEl.addEventListener('blur', () => { validateFullName(); validateIdCardFile(); validateDriverLicenseFile(); refreshSubmitState(); });
+        fullNameEl.addEventListener('input', () => { validateFullName(); photosPending(); refreshSubmitState(); });
+        fullNameEl.addEventListener('blur', () => { validateFullName(); refreshSubmitState(); });
     }
     
     if (phoneEl) {
@@ -593,8 +657,8 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     if (idCardEl) {
-        idCardEl.addEventListener('input', () => { validateIdCard(); validateDriverLicense(); validateIdCardFile(); refreshSubmitState(); });
-        idCardEl.addEventListener('blur', () => { validateIdCard(); validateDriverLicense(); validateIdCardFile(); validateDriverLicenseFile(); refreshSubmitState(); });
+        idCardEl.addEventListener('input', () => { validateIdCard(); validateDriverLicense(); photosPending(); refreshSubmitState(); });
+        idCardEl.addEventListener('blur', () => { validateIdCard(); validateDriverLicense(); refreshSubmitState(); });
     }
 
     if (idCardFileEl) {
@@ -602,8 +666,8 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     if (licenseEl) {
-        licenseEl.addEventListener('input', () => { validateDriverLicense(); validateDriverLicenseFile(); refreshSubmitState(); });
-        licenseEl.addEventListener('blur', () => { validateDriverLicense(); validateDriverLicenseFile(); validateIdCardFile(); refreshSubmitState(); });
+        licenseEl.addEventListener('input', () => { validateDriverLicense(); photosPending(); refreshSubmitState(); });
+        licenseEl.addEventListener('blur', () => { validateDriverLicense(); refreshSubmitState(); });
     }
 
     if (licenseFileEl) {
@@ -619,17 +683,19 @@ document.addEventListener("DOMContentLoaded", function () {
     const purchaseForm = document.getElementById('purchaseForm');
     if (purchaseForm) {
         purchaseForm.addEventListener('submit', sendPurchaseWhatsApp);
+        purchaseForm.addEventListener('input', hideFormAlert);   // le problème est en cours de correction : l'alerte disparaît
+        purchaseForm.addEventListener('change', hideFormAlert);
     }
 });
 
 function sendPurchaseWhatsApp(event) {
     if (event) event.preventDefault();
+    hideFormAlert();
 
     /* Re-validation complète au moment de la soumission */
     validateFullName();
     validatePhone();
     validateIdCard();
-    validateIdCardFile();
     validateDriverLicense();
     refreshSubmitState();
 
@@ -653,6 +719,7 @@ function sendPurchaseWhatsApp(event) {
     saleData.append('action', 'create');
     saleData.append('car_name', CAR_NAME);
     saleData.append('car_details', `Paiement : ${paymentMethod} | CNI: ${idCard} | Permis: ${driverLicense}`);
+    saleData.append('payment_method', paymentMethod);   // colonne « Mode Paiement » du tableau de bord
     saleData.append('buyer_nom', fullName);
     saleData.append('buyer_telephone', userPhone);
     saleData.append('sale_price', RAW_PRICE || 0);
@@ -665,7 +732,7 @@ function sendPurchaseWhatsApp(event) {
     if (idCardFileEl && idCardFileEl.files[0]) saleData.append('idCardFile', idCardFileEl.files[0]);
     if (driverLicenseFileEl && driverLicenseFileEl.files[0]) saleData.append('driverLicenseFile', driverLicenseFileEl.files[0]);
 
-    let alreadyTaken = false;
+    let refusal = null; // message d'un refus du serveur : rien n'a été enregistré
     fetch('../api/sales.php', {
         method: 'POST',
         body: saleData
@@ -681,9 +748,8 @@ function sendPurchaseWhatsApp(event) {
         if (!data.success) {
             console.error('Erreur lors de l’enregistrement de la vente : ', data.message);
             // Véhicule déjà en cours d'achat / réservé / attendu, ou dossier refusé (documents manquants...) :
-            // rien n'a été enregistré, on prévient le client et on n'ouvre pas WhatsApp.
-            alreadyTaken = true;
-            alert(data.message || "Votre demande n'a pas pu être enregistrée. Veuillez réessayer.");
+            // rien n'a été enregistré, on prévient le client dans le formulaire et on n'ouvre pas WhatsApp.
+            refusal = data.message || "Votre demande n'a pas pu être enregistrée. Veuillez réessayer.";
         } else {
             console.log('Succès : ', data.message);
         }
@@ -692,9 +758,9 @@ function sendPurchaseWhatsApp(event) {
         console.error('Erreur réseau lors de l’enregistrement de la vente en base :', error);
     })
     .finally(() => {
-        if (alreadyTaken) { // un autre client a bloqué le véhicule entre-temps : pas de WhatsApp
+        if (refusal) { // la fenêtre reste ouverte : le problème est expliqué en haut du formulaire, sans WhatsApp
             if (loader) loader.style.display = 'none';
-            closeAchatModal();
+            showFormAlert(refusal);
             return;
         }
         let message = `Bonjour AutoNems, je souhaite finaliser l'achat du véhicule suivant :\n\n`;

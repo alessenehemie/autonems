@@ -13,7 +13,11 @@
 (function () {
     'use strict';
 
-    var API_URL = '../api/sales.php?action=public_list';
+    // Chemin de l'API selon la page : « api/ » sur la page principale (à la racine du site, où se trouvent les cartes),
+    // « ../api/ » depuis une page placée dans un sous-dossier (ex. achat/). Calculé à l'appel, quand la page est chargée.
+    function apiUrl() {
+        return (document.getElementById('vehicleGrid') ? '' : '../') + 'api/sales.php?action=public_list';
+    }
     var POLL_MS = 15000;
     var LOCK_MSG = "Ce véhicule est en cours d'achat : la réservation et l'achat sont momentanément indisponibles.";
     var BADGE_LABEL = "En cours d'achat";
@@ -222,7 +226,7 @@
 
     /* ---------- Lecture de l'état sur le serveur ---------- */
     function poll() {
-        return fetch(API_URL, { cache: 'no-store' })
+        return fetch(apiUrl(), { cache: 'no-store' })
             .then(function (res) { return res.json(); })
             .then(function (data) {
                 if (!data || data.success !== true) return;       // en cas de doute, on garde l'état précédent

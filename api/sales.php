@@ -179,6 +179,12 @@ if ($action === 'create') {
     $id_card_number        = $_POST['id_card_number'] ?? null;
     $driver_license_number = $_POST['driver_license_number'] ?? null;
 
+    // Ancienne version de achat.js : le mode de paiement n'était envoyé que dans « car_details » (« Paiement : X | CNI: … »)
+    if (($payment_method === null || trim((string) $payment_method) === '')
+        && preg_match('/Paiement\s*:\s*([^|]+)/u', (string) $car_details, $mpay)) {
+        $payment_method = trim($mpay[1]);
+    }
+
     // Nettoyage des textes reçus (le tableau de bord affiche ces valeurs telles quelles : on retire tout HTML)
     $car_name              = clean_text($car_name, 255);
     $car_details           = clean_text($car_details, 2000);

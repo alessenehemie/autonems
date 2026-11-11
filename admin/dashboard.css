@@ -712,14 +712,12 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 button:active { transform: scale(0.97); }
 
 /* ---------- 1. Menu latéral : icônes + titre ---------- */
-.admin-sidebar nav a { display: flex; align-items: center; gap: 12px; }
-.admin-sidebar nav a::before { font-size: 1.15rem; width: 1.5rem; text-align: center; flex: 0 0 auto; }
+
 .tab-link[data-target="section-overview"]::before     { content: '📊'; }
 .tab-link[data-target="section-stock"]::before        { content: '🚘'; }
 .tab-link[data-target="section-reservations"]::before { content: '📋'; }
+.tab-link[data-target="section-sales"]::before        { content: '💰'; }   /* NOUVEAU */
 .tab-link[data-target="section-settings"]::before     { content: '⚙️'; }
-.admin-sidebar h2 { letter-spacing: 0.3px; }
-
 /* ---------- 2. Titres ---------- */
 .admin-section h1 {
     font-size: clamp(1.5rem, 3vw, 2.1rem);
